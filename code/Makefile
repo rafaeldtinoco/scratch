@@ -1,7 +1,7 @@
 CFLAGS=-Wno-error=format -Wno-error=format-security
 
 all:
-	gcc -I. -o mknod mknod.c
+	gcc -I. -o mknod mknod.c		# needs attr/xattr.h  (libattr1-dev)
 	gcc -I. -o archsizes archsizes.c
 	gcc -I. -o membarrier membarrier.c
 	gcc -I. -o islittle islittle.c

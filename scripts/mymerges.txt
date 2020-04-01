@@ -8,6 +8,7 @@ dlm
 drbd-doc
 drbd-utils
 fence-agents
+fence-virt
 gfs2-utils
 heartbeat
 keepalived
@@ -21,6 +22,9 @@ pcs
 python-rtslib-fb
 resource-agents
 sbd
+sg3-utils
+smp-utils
 targetcli-fb
 tcmu
 tgt
+lvm2

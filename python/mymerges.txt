@@ -27,4 +27,3 @@ smp-utils
 targetcli-fb
 tcmu
 tgt
-lvm2

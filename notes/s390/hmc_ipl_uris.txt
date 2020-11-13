@@ -2,7 +2,7 @@ Recovery -> Load from Removable Media or Server
 	FTP Source
 		Host computer: 192.168.252.2
 		User ID: anonymous
-		Password: me
+		Password:
 		Account (optional):
 		File location (optional): ubuntu-server-16.04/boot
 		File location (optional): ubuntu-server-16.04.1/boot

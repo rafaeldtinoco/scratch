@@ -1298,7 +1298,7 @@ If you did everything right, you should have a list somewhere with something lik
 
 	Subscription ID	ffffffff-0262-4e54-9bd9-8b7458eec86b
 	Tenant ID	ffffffff-e8f6-40ae-8875-da47c934f1c1
-	Password (App secret Value)	4ffff.F~ffffrc8-CZ_Wu~o6wffffffff_
+	Password (App secret Value)	xxxxx.F~ffffrc8-CZ_Wu~o6wffffffff_
 	Username (App ID)	ffffffff-2b92-4ca1-87f2-0fb865c64635
 
 (without all the 'f's used to obscure mine). You will need all this information to configure the fence agent in pacemaker (so it has proper rights to power off the virtual machines when needed).
@@ -1375,7 +1375,7 @@ I prefer using the command "crm configure edit" and editing my resource creation
 	        resourceGroup="focal-ha" \
 	        username="ffffffff-2b92-4ca1-87f2-0fb865c64635" \
 	        login="ffffffff-2b92-4ca1-87f2-0fb865c64635" \
-	        passwd="4ffff.F~ffffrc8-CZ_Wu~o6wffffffff_" \
+	        passwd="xxxxx.F~ffffrc8-CZ_Wu~o6wffffffff_" \
 	        tenantId="ffffffff-e8f6-40ae-8875-da47c934f1c1" \
 	        subscriptionId="ffffffff-0262-4e54-9bd9-8b7458eec86b" \
 	        pcmk_reboot_timeout=900 \
@@ -1425,7 +1425,7 @@ But obviously we need more settings. We can't run the fence agent in the same no
 	        resourceGroup="focal-ha" \
 	        username="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
 	        login="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
-	        passwd="44jug.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
+	        passwd="xxxxx.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
 	        tenantId="2fa63a52-e8f6-40ae-8875-da47c934f1c1" \
 	        subscriptionId="6e9c2b6f-0262-4e54-9bd9-8b7458eec86b" \
 	        pcmk_reboot_timeout=900 \
@@ -1440,7 +1440,7 @@ But obviously we need more settings. We can't run the fence agent in the same no
 	        resourceGroup="focal-ha" \
 	        username="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
 	        login="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
-	        passwd="44jug.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
+	        passwd="xxxxx~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
 	        tenantId="2fa63a52-e8f6-40ae-8875-da47c934f1c1" \
 	        subscriptionId="6e9c2b6f-0262-4e54-9bd9-8b7458eec86b" \
 	        pcmk_reboot_timeout=900 \
@@ -1455,7 +1455,7 @@ But obviously we need more settings. We can't run the fence agent in the same no
 	        resourceGroup="focal-ha" \
 	        username="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
 	        login="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
-	        passwd="44jug.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
+	        passwd="xxxx.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
 	        tenantId="2fa63a52-e8f6-40ae-8875-da47c934f1c1" \
 	        subscriptionId="6e9c2b6f-0262-4e54-9bd9-8b7458eec86b" \
 	        pcmk_reboot_timeout=900 \

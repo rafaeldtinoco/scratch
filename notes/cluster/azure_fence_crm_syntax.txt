@@ -1,7 +1,7 @@
 
 Subscription ID: 6e9c2b6f-0262-4e54-9bd9-8b7458eec86b
 Tenant ID: 2fa63a52-e8f6-40ae-8875-da47c934f1c1
-Password (App secret Value): 44jug.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_
+Password (App secret Value): xxxx.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_
 Username (App ID): 0bf35c49-2b92-4ca1-87f2-0fb865c64635
 
 node 1: vm01
@@ -14,7 +14,7 @@ primitive fence-vm01 stonith:fence_azure_arm \
         resourceGroup="focal-ha" \
         username="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
         login="0bf35c49-2b92-4ca1-87f2-0fb865c64635" \
-        passwd="44jug.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
+        passwd="xxxx.F~7b4Irc8-CZ_Wu~o6w2N6kZUsT_" \
         tenantId="2fa63a52-e8f6-40ae-8875-da47c934f1c1" \
         subscriptionId="6e9c2b6f-0262-4e54-9bd9-8b7458eec86b" \
         pcmk_reboot_timeout=900 \

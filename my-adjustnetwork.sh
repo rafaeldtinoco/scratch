@@ -5,20 +5,20 @@ set -e
 interfaces=()
 
 interfaces+=( iscsi01 )
-# interfaces+=( iscsi02 )
+interfaces+=( iscsi02 )
 interfaces+=( private01 )
-# interfaces+=( private02 )
+interfaces+=( private02 )
 interfaces+=( public01 )
-# interfaces+=( public02 )
+interfaces+=( public02 )
 
 netprefix=()
 
 netprefix+=( "10.250.94" )
-# netprefix+=( "10.250.93" )
+netprefix+=( "10.250.93" )
 netprefix+=( "10.250.96" )
-# netprefix+=( "10.250.95" )
+netprefix+=( "10.250.95" )
 netprefix+=( "10.250.92" )
-# netprefix+=( "10.250.91" )
+netprefix+=( "10.250.91" )
 
 for ((i=0; i<10; i++))
 do

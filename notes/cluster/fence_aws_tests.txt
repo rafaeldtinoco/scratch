@@ -2,19 +2,19 @@
 
 primitive fence-focal01 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-034dc89cca4310b03" \
 pcmk_host_map="focal01:i-034dc89cca4310b03;focal02:i-0a160b14b40f1330a;focal03:i-03b6976ab0a7f377c"
 
 primitive fence-focal02 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-0a160b14b40f1330a" \
 pcmk_host_map="focal01:i-034dc89cca4310b03;focal02:i-0a160b14b40f1330a;focal03:i-03b6976ab0a7f377c"
 
 primitive fence-focal03 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-03b6976ab0a7f377c" \
 pcmk_host_map="focal01:i-034dc89cca4310b03;focal02:i-0a160b14b40f1330a;focal03:i-03b6976ab0a7f377c"
 
@@ -85,19 +85,19 @@ sudo fence_aws -n i-0136eddd045ceb7e2 -o reboot -r us-east-1 -a AKIA4HWEZZQ5RHQA
 
 primitive fence-bionic01 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-068e134de1beddc7f" \
 pcmk_host_map="bionic01:i-068e134de1beddc7f;bionic02:i-0136eddd045ceb7e2;bionic03:i-0de279ab4e6d642c8"
 
 primitive fence-bionic02 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-0136eddd045ceb7e2" \
 pcmk_host_map="bionic01:i-068e134de1beddc7f;bionic02:i-0136eddd045ceb7e2;bionic03:i-0de279ab4e6d642c8"
 
 primitive fence-bionic03 stonith:fence_aws \
 params access_key="AKIA4HWEZZQ5RHQASP7E" \
-secret_key="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" \
+secret_key="" \
 region="us-east-1" plug="i-0de279ab4e6d642c8" \
 pcmk_host_map="bionic01:i-068e134de1beddc7f;bionic02:i-0136eddd045ceb7e2;bionic03:i-0de279ab4e6d642c8"
 
@@ -109,7 +109,7 @@ location l-fence-bionic03 fence-bionic03 -inf: bionic03
 
 primitive fence-bionic01 stonith:fence_aws \
     params access_key=AKIA4HWEZZQ5RHQASP7E \
-    secret_key="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" \
+    secret_key="" \
     region=us-east-1 \
     plug=i-068e134de1beddc7f \
     pcmk_host_list="bionic01;bionic02;bionic03" \
@@ -118,7 +118,7 @@ primitive fence-bionic01 stonith:fence_aws \
 
 primitive fence-bionic02 stonith:fence_aws \
     params access_key=AKIA4HWEZZQ5RHQASP7E \
-    secret_key="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" \
+    secret_key="" \
     region=us-east-1 \
     plug=i-0136eddd045ceb7e2 \
     pcmk_host_list="bionic01;bionic02;bionic03" \
@@ -127,7 +127,7 @@ primitive fence-bionic02 stonith:fence_aws \
 
 primitive fence-bionic03 stonith:fence_aws \
     params access_key=AKIA4HWEZZQ5RHQASP7E \
-    secret_key="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" \
+    secret_key="" \
     region=us-east-1 \
     plug=i-0de279ab4e6d642c8 \
     pcmk_host_list="bionic01;bionic02;bionic03" \

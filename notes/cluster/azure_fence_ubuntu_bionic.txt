@@ -271,15 +271,15 @@ Using the following configuration in pacemaker cluster:
 	node 2: vm02
 	node 3: vm03
 	primitive fence_vm01 stonith:fence_azure_arm \
-		params resourceGroup=eastus plug=vm01 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="xxxxxxxxxxxx" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
+		params resourceGroup=eastus plug=vm01 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
 		op monitor interval=3600 timeout=120 \
 		meta target-role=Started
 	primitive fence_vm02 stonith:fence_azure_arm \
-		params resourceGroup=eastus plug=vm02 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="xxxxxxxxxxxx" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
+		params resourceGroup=eastus plug=vm02 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
 		op monitor interval=3600 timeout=120 \
 		meta target-role=Started
 	primitive fence_vm03 stonith:fence_azure_arm \
-		params resourceGroup=eastus plug=vm03 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="xxxxxxxxxxxx" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
+		params resourceGroup=eastus plug=vm03 username=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 login=xxxxxxxx-05af-4f9d-9e80-1bf551ca02a4 passwd="" tenantId=xxxxxxxx-e8f6-40ae-8875-da47c934f1c1 subscriptionId=xxxxxxxx-0262-4e54-9bd9-8b7458eec86b pcmk_monitor_retries=4 pcmk_action_limit=3 power_timeout=240 pcmk_reboot_timeout=900 \
 		op monitor interval=3600 timeout=120 \
 		meta target-role=Started
 	location l_fence_vm01 fence_vm01 -inf: vm01

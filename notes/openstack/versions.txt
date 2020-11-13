@@ -1,0 +1,54 @@
+# PPAs
+
+cloud-archive:{ostack-release}
+cloud-archive:{ostack-release}-proposed
+ppa:ubuntu-cloud-archive/{ostack-release}-staging
+
+sudo add-apt-repository cloud-archive:kilo
+sudo add-apt-repository cloud-archive:kilo-proposed
+sudo add-apt-repository ppa:ubuntu-cloud-archive/kilo-staging
+
+sudo add-apt-repository cloud-archive:liberty
+sudo add-apt-repository cloud-archive:liberty-proposed
+sudo add-apt-repository ppa:ubuntu-cloud-archive/liberty-staging
+
+sudo add-apt-repository cloud-archive:mitaka
+sudo add-apt-repository cloud-archive:mitaka-proposed
+sudo add-apt-repository ppa:ubuntu-cloud-archive/mitaka-staging
+
+PRECISE 12.04
+TRUSTY 14.04
+XENIAL 16.04
+YAKKETY 16.10
+ZESTY 17.04
+
+# OPENSTACK VERSIONS
+
+ICEHOUSE        TRUSTY    PRECISE, TRUSTY
+JUNO            UTOPIC    TRUSTY
+KILO            VIVID     TRUSTY
+LIBERTY         WILY      TRUSTY
+MITAKA          XENIAL    TRUSTY, XENIAL
+NEWTON          YAKKETY   XENIAL, YAKKETY
+OCATA           ZESTY     XENIAL, YAKKETY, ZESTY
+
+# LIBVIRT VERSIONS
+
+PRECISE        0.9.8
+TRUSTY         1.2.2
+VIVID          1.2.12
+WILY           1.2.16
+XENIAL         1.3.1
+YAKKETY        2.1.0
+ZESTY          2.5.0-3
+
+# QEMU VERSIONS
+
+PRECISE    1.0
+TRUSTY     2.0
+VIVID      2.2
+WILY       2.3
+XENIAL     2.5
+YAKKETY    2.6
+ZESTY      2.8
+

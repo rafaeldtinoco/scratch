@@ -1,0 +1,33 @@
+/usr/bin/qemu-system-aarch64
+    -name guest=keoan,debug-threads=on
+    -S
+    -machine virt-2.10,accel=kvm,usb=off,dump-guest-core=off,gic-version=3
+    -cpu host -m 8192 -realtime mlock=off
+    -smp 8,sockets=8,cores=1,threads=1
+    -uuid 8354938c-6acf-4d99-b5e5-3eb0d329037c
+    -display none
+    -no-user-config
+    -nodefaults
+    -chardev socket,id=charmonitor,fd=19,server,nowait
+    -mon chardev=charmonitor,id=monitor,mode=control
+    -rtc base=utc,clock=vm,driftfix=slew
+    -no-shutdown
+    -no-acpi
+    -boot strict=on
+    -kernel /var/lib/libvirt/images/keoan/vmlinuz
+    -initrd /var/lib/libvirt/images/keoan/initrd.img
+    -append root=/dev/vda noresume console=tty0 console=ttyAMA0,38400n8 net.ifnames=0 apparmor=0
+    -device pcie-root-port,port=0x8,chassis=1,id=pci.1,bus=pcie.0,multifunction=on,addr=0x1 -device pcie-root-port,port=0x9,chassis=2,id=pci.2,bus=pcie.0,addr=0x1.0x1 -device pcie-root-port,port=0xa,chassis=3,id=pci.3,bus=pcie.0,addr=0x1.0x2 -device pcie-root-port,port=0xb,chassis=4,id=pci.4,bus=pcie.0,addr=0x1.0x3 -device pcie-root-port,port=0xc,chassis=5,id=pci.5,bus=pcie.0,addr=0x1.0x4 -device pcie-root-port,port=0xd,chassis=6,id=pci.6,bus=pcie.0,addr=0x1.0x5 -device pcie-root-port,port=0xe,chassis=7,id=pci.7,bus=pcie.0,addr=0x1.0x6 -device pcie-root-port,port=0xf,chassis=8,id=pci.8,bus=pcie.0,addr=0x1.0x7 -device virtio-serial-pci,id=virtio-serial0,bus=pci.6,addr=0x0
+    -drive file=/var/lib/libvirt/images/keoan/disk01.ext4.qcow2,format=qcow2,if=none,id=drive-virtio-disk0
+    -device virtio-blk-pci,scsi=off,bus=pci.7,addr=0x0,drive=drive-virtio-disk0,id=virtio-disk0,bootindex=1 -fsdev local,security_model=passthrough,id=fsdev-fs0,path=/home/inaddy
+    -device virtio-9p-pci,id=fs0,fsdev=fsdev-fs0,mount_tag=inaddy,bus=pci.1,addr=0x0 -fsdev local,security_model=passthrough,id=fsdev-fs1,path=/root
+    -device virtio-9p-pci,id=fs1,fsdev=fsdev-fs1,mount_tag=root,bus=pci.2,addr=0x0
+    -fsdev local,security_model=passthrough,id=fsdev-fs2,path=/var/lib/libvirt/images
+    - device virtio-9p-pci,id=fs2,fsdev=fsdev-fs2,mount_tag=images,bus=pci.3,addr=0x0
+    -fsdev local,security_model=passthrough,id=fsdev-fs3,path=/etc/libvirt/qemu
+    -device virtio-9p-pci,id=fs3,fsdev=fsdev-fs3,mount_tag=qemu,bus=pci.4,addr=0x0 -netdev tap,fd=25,id=hostnet0,vhost=on,vhostfd=26
+    -device virtio-net-pci,netdev=hostnet0,id=net0,mac=52:54:00:16:3d:04,bus=pci.5,addr=0x0 -chardev pty,id=charserial0 -serial chardev:charserial0
+    -chardev pty,id=charconsole1 -device virtconsole,chardev=charconsole1,id=console1 -device virtio-balloon-pci,id=balloon0,bus=pci.8,addr=0x0
+    -sandbox off
+    -msg timestamp=on
+

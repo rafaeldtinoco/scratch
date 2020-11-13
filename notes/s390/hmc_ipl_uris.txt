@@ -1,0 +1,35 @@
+Recovery -> Load from Removable Media or Server
+	FTP Source
+		Host computer: 192.168.252.2
+		User ID: anonymous
+		Password: me
+		Account (optional):
+		File location (optional): ubuntu-server-16.04/boot
+		File location (optional): ubuntu-server-16.04.1/boot
+		File location (optional): ubuntu-server-16.10/latest/boot
+        File location (optional): ubuntu-server-17.04/daily/boot
+		File location (optional): ubuntu-server-16.04.2/boot
+		File location (optional): ubuntu-server-16.04.2/boot-hwe
+		File location (optional): ubuntu-server-17.10/boot
+		File location (optional): ubuntu-server-16.04.3/boot
+		File location (optional): ubuntu-server-16.04.3/boot-hwe
+		File location (optional): ubuntu-server-16.04.4/boot
+		File location (optional): ubuntu-server-16.04.4/boot-hwe
+ 		File location (optional): ubuntu-server-18.04/boot
+ 		File location (optional): ubuntu-server-18.04.1/boot
+		File location (optional): ubuntu-server-16.04.5/boot
+		File location (optional): ubuntu-server-16.04.5/boot-hwe
+		File location (optional): ubuntu-server-16.04.6/boot
+		File location (optional): ubuntu-server-16.04.6/boot-hwe
+ 		File location (optional): ubuntu-server-18.10/boot
+ 		File location (optional): ubuntu-server-19.04/boot
+ 		File location (optional): ubuntu-server-18.04.2/boot
+ 		File location (optional): ubuntu-server-18.04.2/boot-hwe
+ 		File location (optional): ubuntu-server-19.10/boot
+ 		File location (optional): ubuntu-live-server-19.10/boot
+ 		File location (optional): ubuntu-server-18.04.3/boot
+ 		File location (optional): ubuntu-server-18.04.3/boot-hwe
+ 		File location (optional): ubuntu-server-18.04.4/boot
+ 		File location (optional): ubuntu-server-18.04.4/boot-hwe
+ 		File location (optional): ubuntu-server-20.04/boot
+ 		File location (optional): ubuntu-live-server-20.04/boot

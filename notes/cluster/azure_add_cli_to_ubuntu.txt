@@ -1,0 +1,37 @@
+Add azure-cli to all nodes by adding:
+
+	deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ bionic main
+
+to /etc/apt/sources.list and then executing:
+
+	$ sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys EB3E94ADBE1229CF
+
+before updating the package list with:
+
+	$ sudo apt-get update -y
+
+and installing azure-cli package with:
+
+	$ sudo apt-get install -y azure-cli
+
+After having azure-cli properly installed, execute "az login" in all cluster nodes:
+
+	$ az login
+	To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ATH4MS43B to authenticate.
+	[
+	  {
+	    "cloudName": "AzureCloud",
+	    "homeTenantId": "xxxxxxxx-e8f6-40ae-8875-da47c934f1c1",
+	    "id": "xxxxxxxx-0262-4e54-9bd9-8b7458eec86b",
+	    "isDefault": true,
+	    "managedByTenants": [],
+	    "name": "rafaeldtinoco@ubuntu.com",
+	    "state": "Enabled",
+	    "tenantId": "xxxxxxxx-e8f6-40ae-8875-da47c934f1c1",
+	    "user": {
+	      "name": "rafaeldtinoco@gmail.com",
+	      "type": "user"
+	    }
+	  }
+	]
+

@@ -1,0 +1,7 @@
+#!/bin/bash
+
+openssl genrsa -out key.pem 2048
+openssl req -new -x509 -key key.pem -out cert.pem
+cat key.pem cert.pem > stunnel.pem
+
+	- To get example from mysql-8 howto online page

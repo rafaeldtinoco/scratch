@@ -1,0 +1,115 @@
+Basic logic for AioContext before this change was:
+
+QEMU has its own asynchronous IO implementation, which has a master 
+structure referred as "AIO Context". This asynchronous IO subsystem is 
+used by different parts of QEMU (the main loop, or, the new IO 
+threads, also based in AIO context).
+
+AIO context is a g_source implementation (from glib) and handles 
+different types of file descriptor structures (for polling them) and 
+calls its callbacks based on a need for re-scheduling (bottom half), 
+presence of data in the file descriptors (pollfd), or after timeouts. 
+
+There are callbacks for rfifolocks (similar to mutexes, with 
+recursion), aiohandlers (using poll to monitor file descriptors), 
+qemu's deferred work implementation called "bottom halves" (just like 
+kernel's bottom halves idea) and notification events.
+
+The mechanism AioContext used, in a simplified version, is this:
+
+- aio is basically a scheduler where you can register callbacks
+
+- aio first tries to dispatch bottom halves and then the aio handlers
+
+- aio STRUCT has fields for attention notification: 
+
+        notify_me, notified, notifier.
+
+- aio knows the need to block "aio_poll", for example, through notifier variables.
+
+EXAMPLE
+
+- aio user creates a bottom half with a specific callback and 
+schedules it.
+
+- qemu_bh_schedule() function already calls "aio_notify()":
+
+  - to set "notified" variable to true.
+  - to init an event notifier (notifier) containing "1" as string.
+
+- aio subsystem "acks" this event when:
+
+  - doing aio_ctx_check before the next run (g_source model).
+  - aio_poll() runs, the core loop function.
+
+- the "ack" implies in:
+
+  - setting "notified" back to false.
+  - cleaning event notifier (notifier).
+
+With that said, when observing the change more carefully:
+
+- event_notifier_test_and_clear() is not being called directly.
+
+- now, to cleanup the event notifier, we have another "logic".
+
+- the logic doesn't seem to be the problem:
+
+  - the event notifier is an struct with 2 file descriptors (to be read) on it.
+  - cleaning this right when called or in the next poll() is no different.
+
+ANALYSIS
+
+Probable cause:
+
+Unfortunately the new variable synchronization asked for some barriers:
+
++ atomic_mb_set(&ctx->notified, true);
+#ifndef atomic_mb_set
+#define atomic_mb_set(ptr, i) do { \
+    smp_wmb(); \
+    atomic_set(ptr, i); \
+    smp_mb(); \
+} while (0)
+#endif
+
+The "smp_wmb()" macro is either 1 or 2 compiler barrier (depending on 
+the architecture). I believe that x86_64 is using __sync_synchronize() 
+directive, causing a full HW barrier to happen (not only an 
+out-of-order correction, but, a real barrier).
+
+The "smp_mb()" is the same thing, 1 full HW barrier. So, for this 
+particular change, we added at least two full HW barriers (bigger cost 
+for sensitive workload).
+
+and
+
++ if (atomic_xchg(&ctx->notified, false)) {
+
+This is a macro translating to __atomic_exchange() directive which, 
+likely, makes GCC to use another mem barrier for the atomicity 
+regarding cache coherency in between different cache layers.
+
+VIRTIO
+
+This commit has probably made a difference for final user's tests 
+because virtio is using the QEMU Bottom Half implementation from AIO 
+instead of the "timer" implementation (for deferred works). I'm not 
+sure if timer would be better or even worse (txmode=timer for virtio 
+device).
+
+https://pastebin.ubuntu.com/26417646/
+
+Calling qemu_bh_new it creates a bottom half for "virtio_net_tx_bh", 
+which is the function responsible for scheduling the bottom half with 
+"qemu_bh_schedule", so, virtio_net_flush_txt can be run again and 
+again (causing the barriers to happen again and again).
+
+OBSERVATIONS
+
+If we confirm that this is the actual problem - likely - it is 
+possible that we can try making this change more efficient, or even 
+removing it, but that will, likely, depend on upstream accepting what 
+we proposed. The reason behind this is simple: they can choose to have 
+the barriers even if causing lower throughput for some workloads.
+

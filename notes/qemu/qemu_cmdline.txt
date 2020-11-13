@@ -1,0 +1,114 @@
+#### kvm01 (instance starts)
+
+
+#!/bin/bash
+
+
+# instance.sh
+
+
+/usr/bin/qemu-system-x86_64 \
+-name guest=guest,debug-threads=on \
+-S \
+-machine pc,accel=kvm,usb=off \
+-cpu host \
+-m 3907 \
+-realtime mlock=off \
+-smp 4,sockets=4,cores=1,threads=1 \
+-uuid 44a6c384-fa9d-44d2-a47d-5c3523a43cad \
+-no-user-config \
+-nodefaults \
+-rtc base=utc,driftfix=slew \
+-chardev socket,id=monitor,path=/tmp/guest.monitor,server,nowait \
+-monitor chardev:monitor \
+-chardev socket,id=serial,path=/tmp/guest.serial,server,nowait \
+-serial chardev:serial \
+-qmp unix:/tmp/guest.sock,server,nowait \
+-global kvm-pit.lost_tick_policy=discard \
+-no-hpet \
+-no-shutdown \
+-global PIIX4_PM.disable_s3=1 \
+-global PIIX4_PM.disable_s4=1 \
+-boot strict=on \
+-drive file=/var/lib/libvirt/images/guest.qcow2,format=qcow2,if=none,id=disk0 \
+-device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x4,drive=disk0,id=virtio0,bootindex=1 \
+-netdev tap,id=net0,vhost=on \
+-device virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:20:c5:42,bus=pci.0,addr=0x3 \
+-nographic \
+-device virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x6 \
+-msg timestamp=on
+
+
+sudo minicom -D unix\#/tmp/kguest.monitor   # HMP (Human Monitor)   - txt
+sudo minicom -D unix\#/tmp/kguest.socket    # QMP (Machine Monitor) - json
+sudo minicom -D unix\#/tmp/kguest.serial    # Guest Serial Console
+
+
+#### kvm02 (instance starts and waits migration)
+
+
+#!/bin/bash
+
+
+# instance.sh
+
+
+/usr/bin/qemu-system-x86_64 \
+-name guest=guest,debug-threads=on \
+-S \
+-machine pc,accel=kvm,usb=off \
+-cpu host \
+-m 3907 \
+-realtime mlock=off \
+-smp 4,sockets=4,cores=1,threads=1 \
+-uuid 44a6c384-fa9d-44d2-a47d-5c3523a43cad \
+-no-user-config \
+-nodefaults \
+-rtc base=utc,driftfix=slew \
+-chardev socket,id=monitor,path=/tmp/guest.monitor,server,nowait \
+-monitor chardev:monitor \
+-chardev socket,id=serial,path=/tmp/guest.serial,server,nowait \
+-serial chardev:serial \
+-qmp unix:/tmp/guest.sock,server,nowait \
+-global kvm-pit.lost_tick_policy=discard \
+-no-hpet \
+-no-shutdown \
+-global PIIX4_PM.disable_s3=1 \
+-global PIIX4_PM.disable_s4=1 \
+-boot strict=on \
+-drive file=/var/lib/libvirt/images/guest.qcow2,format=qcow2,if=none,id=disk0 \
+-device virtio-blk-pci,scsi=off,bus=pci.0,addr=0x4,drive=disk0,id=virtio0,bootindex=1 \
+-netdev tap,id=net0,vhost=on \
+-device virtio-net-pci,netdev=net0,id=net0,mac=52:54:00:20:c5:42,bus=pci.0,addr=0x3 \
+-nographic \
+-device virtio-balloon-pci,id=balloon0,bus=pci.0,addr=0x6 \
+-msg timestamp=on \
+-incoming tcp:0:4444
+
+
+sudo minicom -D unix\#/tmp/guest.monitor
+sudo minicom -D unix\#/tmp/guest.serial
+
+
+####
+#### old-style migration
+####
+
+
+# on kvm01's monitor:
+
+
+migrate -d tcp:kvm02:4444
+info migrate
+
+
+# on kvm02's monitor (when migrate complete):
+
+
+cont
+
+
+# on kvm01's monitor (when migrate complete):
+
+
+quit

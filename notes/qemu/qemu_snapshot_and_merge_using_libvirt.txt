@@ -1,0 +1,86 @@
+(1) Virtual machine uses its qcow2 image disk:
+
+
+----
+inaddy@(kvm01):~$ sudo ls /var/lib/libvirt/images
+guest.qcow2
+----
+
+
+(2) External snapshot is done:
+
+
+----
+inaddy@(kvm01):~$ sudo virsh snapshot-create-as --domain guest --disk-only --atomic
+Domain snapshot 1486936526 created
+----
+
+
+(3) From this moment on the new data is being committed into the new image. Old image is still referenced since the new image doesn't contain data from the underlying one.
+
+
+----
+inaddy@(kvm01):~$ sudo ls /var/lib/libvirt/images
+guest.1486936526  guest.qcow2
+
+
+inaddy@(kvm01):~$ sudo qemu-img info --backing-chain /var/lib/libvirt/images/guest.1486936526
+----
+
+
+(4) Pull all data from original disk (into the new one, so the dependency is no longer.
+
+
+----
+inaddy@(kvm01):~$ virsh blockpull --domain guest --path /var/lib/libvirt/images/guest.1486936526
+Block Pull started
+
+
+<wait until the blockpull is over>
+
+
+inaddy@(kvm01):~$ sudo qemu-img info --backing-chain /var/lib/libvirt/images/guest.1486936526
+----
+
+
+(5) After blockpull, the VM only depends on the qcow2 image it is referencing:
+
+
+----
+inaddy@(kvm01):~$ virsh domblklist guest
+Target     Source
+------------------------------------------------
+vda        /var/lib/libvirt/images/guest.1486936526
+hda        -
+
+
+inaddy@(kvm01):~$ sudo rm /var/lib/libvirt/images/guest.qcow2
+----
+
+
+(6) Rename qcow2 image being used to what it used to be:
+
+
+----
+inaddy@(kvm01):~$ sudo mv /var/lib/libvirt/images/guest.1486936526 /var/lib/libvirt/images/guest.qcow2
+----
+
+
+(7) DON'T FORGET: Change the name of the disk source file in XML
+
+
+----
+inaddy@(kvm01):~$ sudo virsh edit guest
+
+
+Change the source file back to the name you used above...
+
+
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='/var/lib/libvirt/images/guest.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x04' function='0x0'/>
+    </disk>
+----
+

@@ -1,0 +1,69 @@
+fence_virsh
+
+primitive fence-clusterg01 stonith:fence_virsh     \
+    params ipaddr=192.168.100.202 secure=true      \
+    plug=clusterg01 login=fenceuser passwd=f3nc3   \
+    use_sudo=true delay=2                          \
+    op monitor interval=30s
+primitive fence-clusterg02 stonith:fence_virsh     \
+    params ipaddr=192.168.100.202 secure=true      \
+    plug=clusterg02 login=fenceuser passwd=f3nc3   \
+    use_sudo=true delay=4                          \
+    op monitor interval=30s
+primitive fence-clusterg03 stonith:fence_virsh     \
+    params ipaddr=192.168.100.202 secure=true      \
+    plug=clusterg03 login=fenceuser passwd=f3nc3   \
+    use_sudo=true delay=6                          \
+    op monitor interval=30s
+location fence-clusterg01-location fence-clusterg01 -inf: clusterg01
+location fence-clusterg02-location fence-clusterg02 -inf: clusterg02
+location fence-clusterg03-location fence-clusterg03 -inf: clusterg03
+
+fence_scsi
+
+primitive fence-sda stonith:fence_scsi \
+    params devices="/dev/sda" \
+    pcmk_host_map="groovy01:1;groovy02:2;groovy03:3" \
+    pcmk_host_list="groovy01,groovy02,groovy03" \
+    plug="groovy01 groovy02 groovy03" \
+    meta provides=unfencing \
+    op monitor interval=5s
+
+fence_mpath
+
+primitive fence-mpath-clusterg01 stonith:fence_mpath \
+    params \
+    pcmk_on_timeout=70 \
+    pcmk_off_timeout=70 \
+    pcmk_host_list=clusterg01 \
+    pcmk_monitor_action=metadata \
+    pcmk_reboot_action=off \
+    key=59450000 \
+    devices="/dev/mapper/volume01" \
+    power_wait=65 \
+    meta provides=unfencing
+primitive fence-mpath-clusterg02 stonith:fence_mpath \
+    params \
+    pcmk_on_timeout=70 \
+    pcmk_off_timeout=70 \
+    pcmk_host_list=clusterg02 \
+    pcmk_monitor_action=metadata \
+    pcmk_reboot_action=off \
+    key=59450001 \
+    devices="/dev/mapper/volume01" \
+    power_wait=65 \
+    meta provides=unfencing
+primitive fence-mpath-clusterg03 stonith:fence_mpath \
+    params \
+    pcmk_on_timeout=70 \
+    pcmk_off_timeout=70 \
+    pcmk_host_list=clusterg03 \
+    pcmk_monitor_action=metadata \
+    pcmk_reboot_action=off \
+    key=59450002 \
+    devices="/dev/mapper/volume01" \
+    power_wait=65 \
+    meta provides=unfencing
+
+NOTE: small problem on unfencing (need to unfence it manually)
+

@@ -1,0 +1,10 @@
+[code]
+sudo dpkg --add-architecture armhf
+sudo apt-get update
+sudo apt-get install libc6:armhf
+sudo ln -s /lib/ld-linux-armhf.so.3 /lib/ld-linux.so.3
+sudo apt-get install libstdc++6:armhf
+[/code]
+
+https://www.vpn.net/linux
+

@@ -1,0 +1,11 @@
+juju bootstrap localhost
+
+juju deploy -n 3 mysql-innodb-cluster
+
+juju deploy mysql-router
+juju deploy keystone
+juju add-relation keystone:shared-db mysql-router:shared-db
+juju add-relation msyql-router:db-router mysql-innodb-cluster:db-router
+
+juju kill-controller localhost-localhost -y -t1s
+

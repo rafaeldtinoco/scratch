@@ -1,0 +1,220 @@
+#### ubuntu01
+
+# CPU
+
+/usr/bin/lscpumf
+/usr/sbin/chcpumf
+/sbin/chcpu
+
+$ sudo lscpu
+$ sudo chcpu -e 0-3
+
+# Checking Privileges
+
+- /sbin/vmcp
+$ sudo vmcp query cplevel
+$ sudo vmcp query privclass
+
+# Hypervisor TOP (best in diag 204 capable HW)
+
+- /usr/sbin/hyptop
+
+# List and add/remove Memory
+
+- /usr/sbin/lsmem
+- /usr/sbin/chmem
+
+$ sudo chmem -e 1024
+$ sudo chmem -d 1024
+
+# Change Channel Path (Best in LPAR)
+
+- /sbin/lschp
+-/sbin/chchp
+
+# List / Enable Subchannel System
+
+-/sbin/lscss
+-/sbin/chccwdev
+
+$ sudo chccwdev -e 0.0.000c-0.0.000e
+printer/punch/reader
+
+# ReIPL configuration
+
+- /usr/sbin/lsreipl
+- /usr/sbin/chreipl
+- /sbin/zipl
+
+$ sudo apt-get install linux-crashdump kdump-tools      # edit /
+etc/default/kdump.conf
+$ sudo chreipl /dev/dasda -L 0 -p "crashkernel=384M-:256M"
+
+# z/VM spool files queue
+
+- /usr/sbin/vmur
+
+(at inaddy01)
+$ sudo vmur list
+$ sudo vmur punch -r -t -u inaddy02 -N MSG ./msg.txt
+(at inaddy02)
+$ sudo vmur list
+$ sudo vmur receive -t __
+
+# DASD tools
+
+- /sbin/lsdasd
+- /sbin/dasdfmt
+- /sbin/fdasd
+- /sbin/dasdinfo
+- /sbin/tunedasd
+
+$ sudo dasdinfo -uxl -d /dev/dasda         # read unique id
+from s390 dasd (udev)
+
+$ sudo tunedasd -g /dev/dasda
+$ sudo tunedasd -c bypass /dev/dasda
+$ sudo tunedasd -g /dev/dasda
+$ sudo tunedasd -c normal /dev/dasda
+
+# DASD statistics
+
+- /sbin/dasdstat
+- /sbin/dasdview
+
+$ echo set on | sudo tee /proc/dasd/statistics
+$ sudo tunedasd -PI sects /dev/dasda      # 512b sectors
+$ sudo tunedasd -PI total /dev/dasda        # i/o times
+$ echo set off | sudo tee /proc/dasd/statistics
+
+$ sudo dasdstat -e
+$ sudo dasdstat -l dasda
+$ sudo dasdstat -d
+
+# Network Configuration
+
+- /sbin/chzdev
+- /sbin/znetconf
+- /sbin/lszdev
+- /sbin/lsqeth
+
+$ lscss
+$ znetconf -u
+$ sudo znetconf -A     OR
+$ sudo chzdev qeth 0.0.d300 -e
+
+# Fiber Channel
+
+/sbin/lszfcp
+
+/sbin/zfcpdbf
+/usr/sbin/lsluns
+/usr/sbin/ziomon_fcpconf
+/usr/sbin/ziomon_zfcpdd
+
+$ sudo chccwdev -e 0.0.e003
+$ sudo chccwdev -e 0.0.e103
+$ sudo lszfcp -H
+$ sudo lszfcp -H -P
+$ sudo lszfcp -H -P -D
+$ sudo lsluns
+
+$ sudo chzdev zfcp -e 0.0.e003
+$ sudo chzdev zfcp -e 0.0.e103
+
+$ lszfcp -D | sed 's/\//:/g'
+$ chzdev zfcp-lun -e --online
+
+# Storage Class (Flash Express Memory)
+
+/sbin/lsscm
+
+--------------
+
+/usr/sbin/ziorep_config
+
+/usr/sbin/ip_watcher.pl
+/usr/sbin/lshmc
+
+/usr/sbin/ziomon_util
+/usr/sbin/start_hsnc.sh
+/usr/sbin/ziomon_mgr
+/usr/sbin/ziomon
+/usr/sbin/ziorep_traffic
+/usr/sbin/ziorep_utilization
+/usr/sbin/cpacfstatsd
+
+/usr/bin/ts-shell
+/usr/bin/cpacfstats
+/usr/bin/vmconvert
+/usr/bin/hmcdrvfs
+/usr/bin/cmsfs-fuse
+/usr/bin/zdsfs
+/usr/bin/iucvconn
+
+/sbin/tape390_display
+/sbin/tape390_crypt
+
+/sbin/qethqoat
+/sbin/lstape
+/sbin/dbginfo.sh
+/sbin/iucvtty
+
+/sbin/ttyrun
+/sbin/qetharp
+/sbin/cio_ignore
+/sbin/lsqeth
+/sbin/chzcrypt
+/sbin/zgetdump
+/sbin/scsi_logging_level
+/sbin/lszcrypt
+
+/usr/sbin/lsshut
+/usr/sbin/chshut
+
+/usr/sbin/chiucvallow
+/usr/sbin/lsiucvallow
+/usr/sbin/xcec-bridge
+
+/sbin/qethconf
+
+## ubuntu02
+
+#
+
+## ubuntu03
+
+live patching
+
+$ sudo apt-get install snapd
+
+## ubuntu04
+
+lxd + zfs running
+
+$ sudo apt-get install lxd
+$ sudo dpkg-reconfigure -p medium lxd
+$ sudo lxd init
+$ sudo lxc image list ubuntu: s390x
+$ lxc image copy ubuntu:a933d20be138 local: --alias s390yakkety
+$ lxc launch s390xenial xenial01
+$ lxc launch s390yakkety yakkety01
+
+$for i in $(seq 1 30); do lxc launch s390xenial xenial$i; done
+
+# cpu limits
+$ lxc config set xenial01 limits.cpu 2
+$ lxc config set xenial01 limits.cpu 1,3
+$ lxc config set xenial01 limits.cpu 0-3,7-11
+
+$ lxc config set xenial01 limits.cpu.allowance 10%
+$ lxc config set xenial01 limits.cpu.allowance 25ms/200ms
+
+# memory limits
+$ lxc config set my-container limits.memory 256MB
+$ lxc config set my-container limits.memory.swap false
+$ lxc config set my-container limits.memory.swap.priority 0
+
+## ubuntu05
+
+# kvm running

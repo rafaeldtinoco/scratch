@@ -1,0 +1,55 @@
+* A CPU looping in an RCU read-side critical section.
+
+* A CPU looping with interrupts disabled. This condition can result in
+  RCU-sched and RCU-bh stalls.
+
+* A CPU looping with preemption disabled. This s in use, RCU-bhstalls.
+
+* A CPU looping with bottom halves disabled. This condition can result in
+  RCU-sched and RCU-bh stalls.
+
+* For !CONFIG_PREEMPT kernels, a CPU looping anywhere in the kernel without
+  invoking schedule(). Note that cond_resched() does not necessarily
+  prevent RCU CPU stall warnings. Therefore, if the looping in the kernel
+  is really expected and desirable behaviour, you might need to replace some
+  of the cond_resched() calls with calls to cond_resched_rcu_qs().
+
+* Booting Linux using a console connection that is too slow to keep up with
+  the boot-time console-message rate. For example, a 115Kbaud serial
+  console can be -way- too slow to keep up with boot-time message rates,
+  and will frequently result in RCU CPU stall warning messages.
+  Especially if you have added debug printk()s.
+
+* Anything that prevents RCU's grace-period kthreads from running. This
+  can result in the "All QSes seen" console-log message. This message
+  will include information on when the kthread last ran and how often it
+  should be expected to run.
+
+* A CPU-bound real-time task in a CONFIG_PREEMPT kernel, which might happen
+  to preempt a low-priority task in the middle of an RCU read-side critical
+  section. This is especially damaging if that low-priority task is not
+  permitted to run on any other CPU, in which case the next RCU grace
+  period can never complete, which will eventually cause the system to run
+  out of memory and hang. While the system is in the process of running
+  itself out of memory, you might see stall-warning messages.
+
+* A CPU-bound real-time task in a CONFIG_PREEMPT_RT kernel that is running
+  at a higher priority than the RCU softirq threads. This will prevent
+  RCU callbacks from ever being invoked, and in a CONFIG_PREEMPT_RCU kernel
+  will further prevent RCU grace periods from ever completing. Either
+  way, the system will eventually run out of memory and hang. In the
+  CONFIG_PREEMPT_RCU case, you might see stall-warning messages.
+
+* A hardware or software issue shuts off the scheduler-clock interrupt on a
+  CPU that is not in dyntick-idle mode. This problem really has happened,
+  and seems to be most likely to result in RCU CPU stall warnings for
+  CONFIG_NO_HZ_COMMON=n kernels.
+
+* Bug in the RCU implementation.
+
+* A hardware failure. This is quite unlikely, but has occurred at least
+  once in real life. A CPU failed in a running system, becoming
+  unresponsive, but not causing an immediate crash. This resulted in a
+  series of RCU CPU stall warnings, eventually leading the realization that
+  the CPU had failed.
+

@@ -1,0 +1,49 @@
+ubuntu-ha
+	booth
+	cluster-glue
+	corosync
+	corosync-qdevice
+	crmsh
+	csync2
+	dlm
+	drbd-doc
+	drbd-utils
+	drbdmanage
+	fence-agents
+	fence-virt
+	gfs2-utils
+	heartbeat
+	keepalived
+	kronosnet
+	libqb
+	ocfs2-tools
+	pacemaker
+	pcs
+	resource-agents
+	sbd
+ubuntu-virt
+	bochs
+	dnsmasq
+	gtk-vnc
+	kvm
+	libvirt
+	libvirt-python
+	netcat-openbsd
+	open-vm-tools
+	opennebula
+	qemu
+	user-mode-linux
+	uvtool
+	virt-manager
+	virtinst
+	vm-builder
+ubuntu-storage
+	multipath-tools
+	ndctl
+	open-iscsi
+	python-rtslib-fb
+	sg3-utils
+	targetcli-fb
+	tcmu
+	tgt
+

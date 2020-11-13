@@ -1,0 +1,13 @@
+deb http://ports.ubuntu.com/ubuntu-ports/ VERSION main restricted universe multiverse
+deb-src http://ports.ubuntu.com/ubuntu-ports/ VERSION main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports/ VERSION-updates main restricted universe multiverse
+deb-src http://ports.ubuntu.com/ubuntu-ports/ VERSION-updates main restricted universe multiverse
+deb http://ports.ubuntu.com/ubuntu-ports/ VERSION-proposed main restricted universe multiverse
+deb-src http://ports.ubuntu.com/ubuntu-ports/ VERSION-proposed main restricted universe multiverse
+# deb http://ports.ubuntu.com/ubuntu-ports VERSION-security main restricted universe multiverse
+# deb-src http://ports.ubuntu.com/ubuntu-ports VERSION-security main restricted universe multiverse
+# deb http://ports.ubuntu.com/ubuntu-ports/ VERSION-backports main restricted universe multiverse
+# deb-src http://ports.ubuntu.com/ubuntu-ports/ VERSION-backports main restricted universe multiverse
+# deb http://ddebs.ubuntu.com/ VERSION main restricted universe multiverse
+# deb http://ddebs.ubuntu.com/ VERSION-updates main restricted universe multiverse
+# deb http://ddebs.ubuntu.com/ VERSION-proposed main restricted universe multiverse

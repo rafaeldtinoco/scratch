@@ -1,0 +1,101 @@
+# To read registered reservations:
+
+sudo sg_persist --in --read-keys --device=/dev/mapper/volume01
+
+# To read current reservation: -r or --read-reservation:
+
+sudo sg_persist -r /dev/mapper/volume01
+
+# To register the new reservation key 0x123abc the following could be used:
+
+sudo sg_persist --out --register --param-sark=123abc /dev/mapper/volume01
+
+# To reserve the DEVICE (write exclusive):
+
+sudo sg_persist --out --reserve --param-rk=123abc --prout-type=5 /dev/mapper/volume01
+
+# To release the reservation:
+
+sudo sg_persist --out --release --param-rk=123abc --prout-type=5 /dev/mapper/volume01
+
+# To unregister a reservation key:
+
+sudo sg_persist --out --register --param-rk=123abc /dev/mapper/volume01
+
+--clear: release persistent reservation and clears all registrations from the device
+
+----
+
+sudo mpathpersist --out --release --param-rk=0x59450000 --prout-type=5 /dev/mapper/volume01
+sudo mpathpersist --out --register --param-rk=0x59450000 /dev/mapper/volume01
+
+sudo mpathpersist --out --release --param-rk=0x59450001 --prout-type=5 /dev/mapper/volume01
+sudo mpathpersist --out --register --param-rk=0x59450001 /dev/mapper/volume01
+
+sudo mpathpersist --out --release --param-rk=0x59450002 --prout-type=5 /dev/mapper/volume01
+sudo mpathpersist --out --register --param-rk=0x59450002 /dev/mapper/volume01
+
+----
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -r /dev/mapper/volume01
+  PR generation=0x2d, Reservation follows:
+   Key = 0x59450001
+  scope = LU_SCOPE, type = Write Exclusive, registrants only
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -k /dev/mapper/volume01
+  PR generation=0x2d,     12 registered reservation keys follow:
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450000
+    0x59450000
+    0x59450000
+    0x59450000
+
+after fencing:
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -r /dev/mapper/volume01
+  PR generation=0x2d, Reservation follows:
+   Key = 0x59450001
+  scope = LU_SCOPE, type = Write Exclusive, registrants only
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -k /dev/mapper/volume01
+  PR generation=0x2d,     12 registered reservation keys follow:
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450000
+    0x59450000
+    0x59450000
+    0x59450000
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -r /dev/mapper/volume01
+  PR generation=0x2d, Reservation follows:
+   Key = 0x59450001
+  scope = LU_SCOPE, type = Write Exclusive, registrants only
+
+(k)rafaeldtinoco@clusterg03:~$ sudo mpathpersist --in -k /dev/mapper/volume01
+  PR generation=0x2d,     12 registered reservation keys follow:
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450001
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450002
+    0x59450000
+    0x59450000
+    0x59450000
+    0x59450000
+

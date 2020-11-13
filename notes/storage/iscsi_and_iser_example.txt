@@ -1,0 +1,81 @@
+#
+## On the machine that will be the iSER target server (running tgt):
+#
+
+0) Install tgt daemon:
+
+# apt-get install tgt
+
+1) Disable automatic start of the tgt service:
+
+# echo manual > /etc/init/tgt.override
+# service tgt stop
+
+2) Start tgt daemon "by hand":
+
+# tgtd
+
+3) Configure tgt daemon to use a device as a target:
+
+# tgt-setup-lun -n name -d /dev/something -t iser
+
+Practical Example:
+
+# dd if=/dev/zero of=/disks/lunit1 bs=1M count=10240 oflag=direct
+# dd if=/dev/zero of=/disks/lunit2 bs=1M count=10240 oflag=direct
+# dd if=/dev/zero of=/disks/lunit3 bs=1M count=10240 oflag=direct
+
+# tgt-setup-lun -n lunit1 -d /disks/lunit1 -t iser
+# tgt-setup-lun -n lunit2 -d /disks/lunit1 -t iser
+# tgt-setup-lun -n lunit2 -d /disks/lunit1 -t iser
+
+4) Check for errors.
+
+#
+## On the machine that will be the iSER client (running open-iscsi):
+#
+
+0) Install open-iscsi client:
+
+# apt-get install open-iscsi
+
+1) Disable automatic open-iscsi service:
+
+# update-rc.d -f open-iscsi remove
+# service open-iscsi stop
+
+2) Enable open-iscsi service:
+
+# service open-iscsi start
+
+3) Check if iscsi discovery works:
+
+# iscsiadm -m discovery --op=show --type sendtargets --portal 172.16.0.1 -I iser
+
+4) Add the targets to the client:
+
+# iscsiadm -m discovery --op=new --op=del --type sendtargets --portal 172.16.0.1 -I iser
+
+5) Login to the targets:
+
+# iscsiadm -m node -l
+
+6) Check to see if the devices were created by using "dmesg" or ls /dev/sd*.
+
+7) Use the devices for testing, like this example:
+
+root@dixie:~# dd if=/dev/zero of=/dev/sdc bs=1M count=1024 oflag=direct
+1024+0 records in
+1024+0 records out
+1073741824 bytes (1.1 GB) copied, 0.996458 s, 1.1 GB/s
+
+8) Stop open-iscsi service:
+
+# service open-iscsi stop
+
+9) Start open-iscsi service:
+
+# service open-iscsi start
+
+10) Check if iscsi continues to work and no kernel panic has happened.
+

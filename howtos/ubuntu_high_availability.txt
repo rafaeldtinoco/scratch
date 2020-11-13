@@ -1,0 +1,1687 @@
+Ubuntu High Availability
+Shared SCSI Disk only Environments - Microsoft Azure
+This tutorial shows how to deploy a HA Cluster in an environment that supports SCSI shared disks. This is a generic and portable example (working for Real and Virtual machines) as it does not rely in implementation-specific fencing agents (BMC, iLOs, etc): it relies only on SCSI shared disk fencing AND watchdog reset.
+Important
+	1. I have made this document with Microsoft Azure Cloud environment in my head and that’s why the beginning of this document shows how to get a SHARED SCSI DISK in an Azure environment. Clustering examples given bellow will work with any environment, physical or virtual.
+	2. If you want to skip the cloud provider configuration, just search for BEGIN keyword and you will be taken to the cluster and OS specifics.
+Microsoft Azure: Shared SCSI Disk Feature
+As all High Availability Clusters, this one also needs some way to guarantee consistence among different cluster resources. Clusters usually do that by having fencing mechanisms: A way to guarantee the other nodes are not accessing the resources before services running on them, and managed by the cluster, are taken over.
+If following this mini tutorial for a Microsoft Azure Environment setup, make sure to have in mind that this example needs Microsoft Azure Shared Disk feature:
+· Azure Disks Shared Enable
+And the Linux Kernel Module called “softdog”:
+· /lib/modules/xxxxxx-azure/kernel/drivers/watchdog/softdog.ko
+Azure clubionicshared01 disk json file “shared-disk.yaml”:
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "diskName": {
+            "type": "string",
+            "defaultValue": "clubionicshared01"
+        },
+        "diskSizeGb": {
+            "type": "int",
+            "defaultValue": 1024
+        },
+        "maxShares": {
+            "type": "int",
+            "defaultValue": 4
+        }
+    },
+    "resources": [
+        {
+            "apiVersion": "2019-07-01",
+            "type": "Microsoft.Compute/disks",
+            "name": "[parameters('diskName')]",
+            "location": "westcentralus",
+            "sku": {
+                "name": "Premium_LRS"
+            },
+            "properties": {
+                "creationData": {
+                    "createOption": "Empty"
+                },
+                "diskSizeGB": "[parameters('diskSizeGb')]",
+                "maxShares": "[parameters('maxShares')]"
+            },
+            "tags": {}
+        }
+    ]
+}
+Command to create the resource in a resource-group called “clubionic”:
+$ az group deployment create --resource-group clubionic \
+    --template-file ./shared-disk.json
+Environment Creation Basics
+Initial idea is to create the network interfaces:
+· clubionic{01,02,03}{public,private}
+· clubionic{01,02,03}-public
+· associate XXX-public interfaces to clubionic{01,02,03}public
+And then create then create the clubionicshared01 disk (using provided yaml file example). After those are created, next step is to create the 3 needed virtual machines with the proper resources, like showed above, so we can move on in with the cluster configuration.
+You will create a resource-group called “clubionic” with the following resources at first:
+clubionicplacement          Proximity placement group
+clubionicnet                Virtual Network
+    subnets:
+    private                 10.250.3.0/24
+    public                  10.250.98.024
+clubionic01                 Virtual machine
+clubionic01-ip              Public IP address
+clubionic01private          Network interface
+clubionic01public           Network interface (clubionic01-ip associated)
+clubionic01_OsDisk...       OS Disk (automatic creation)
+clubionic02                 Virtual machine
+clubionic02-ip              Public IP address
+clubionic02private          Network interface
+clubionic02public           Network interface (clubionic02-ip associated)
+clubionic02_OsDisk...       OS Disk (automatic creation)
+clubionic03                 Virtual machine
+clubionic03-ip              Public IP address
+clubionic03private          Network interface
+clubionic03public           Network interface (clubionic03-ip associated)
+clubionic03_OsDisk...       OS Disk (automatic creation)
+clubionicshared01           Shared Disk (created using cmdline and json file)
+rafaeldtinocodiag           Storage account (needed for console access)
+Customizing Deployed VM with cloud-init
+I have created a small cloud-init file that can be used in “advanced” tab during VM creation screens (you can copy and paste it there):
+#cloud-config
+package_upgrade: true
+packages:
+  - man
+  - manpages
+  - hello
+  - locales
+  - less
+  - vim
+  - jq
+  - uuid
+  - bash-completion
+  - sudo
+  - rsync
+  - bridge-utils
+  - net-tools
+  - vlan
+  - ncurses-term
+  - iputils-arping
+  - iputils-ping
+  - iputils-tracepath
+  - traceroute
+  - mtr-tiny
+  - tcpdump
+  - dnsutils
+  - ssh-import-id
+  - openssh-server
+  - openssh-client
+  - software-properties-common
+  - build-essential
+  - devscripts
+  - ubuntu-dev-tools
+  - linux-headers-generic
+  - gdb
+  - strace
+  - ltrace
+  - lsof
+  - sg3-utils
+write_files:
+  - path: /etc/ssh/sshd_config
+    content: |
+      Port 22
+      AddressFamily any
+      SyslogFacility AUTH
+      LogLevel INFO
+      PermitRootLogin yes
+      PubkeyAuthentication yes
+      PasswordAuthentication yes
+      ChallengeResponseAuthentication no
+      GSSAPIAuthentication no
+      HostbasedAuthentication no
+      PermitEmptyPasswords no
+      UsePAM yes
+      IgnoreUserKnownHosts yes
+      IgnoreRhosts yes
+      X11Forwarding yes
+      X11DisplayOffset 10
+      X11UseLocalhost yes
+      PermitTTY yes
+      PrintMotd no
+      TCPKeepAlive yes
+      ClientAliveInterval 5
+      PermitTunnel yes
+      Banner none
+      AcceptEnv LANG LC_* EDITOR PAGER SYSTEMD_EDITOR
+      Subsystem     sftp /usr/lib/openssh/sftp-server
+  - path: /etc/ssh/ssh_config
+    content: |
+      Host *
+        ForwardAgent no
+        ForwardX11 no
+        PasswordAuthentication yes
+        CheckHostIP no
+        AddressFamily any
+        SendEnv LANG LC_* EDITOR PAGER
+        StrictHostKeyChecking no
+        HashKnownHosts yes
+  - path: /etc/sudoers
+    content: |
+        Defaults env_keep += "LANG LANGUAGE LINGUAS LC_* _XKB_CHARSET"
+        Defaults env_keep += "HOME EDITOR SYSTEMD_EDITOR PAGER"
+        Defaults env_keep += "XMODIFIERS GTK_IM_MODULE QT_IM_MODULE QT_IM_SWITCHER"
+        Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        Defaults logfile=/var/log/sudo.log,loglinelen=0
+        Defaults !syslog, !pam_session
+        root ALL=(ALL) NOPASSWD: ALL
+        %wheel ALL=(ALL) NOPASSWD: ALL
+        %sudo ALL=(ALL) NOPASSWD: ALL
+        rafaeldtinoco ALL=(ALL) NOPASSWD: ALL
+runcmd:
+  - systemctl stop snapd.service
+  - systemctl stop unattended-upgrades
+  - systemctl stop systemd-remount-fs
+  - system reset-failed
+  - passwd -d root
+  - passwd -d rafaeldtinoco
+  - echo "debconf debconf/priority select low" | sudo debconf-set-selections
+  - DEBIAN_FRONTEND=noninteractive dpkg-reconfigure debconf
+  - DEBIAN_FRONTEND=noninteractive apt-get update -y
+  - DEBIAN_FRONTEND=noninteractive apt-get dist-upgrade -y
+  - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
+  - DEBIAN_FRONTEND=noninteractive apt-get autoclean -y
+  - systemctl disable systemd-remount-fs
+  - systemctl disable unattended-upgrades
+  - systemctl disable apt-daily-upgrade.timer
+  - systemctl disable apt-daily.timer
+  - systemctl disable accounts-daemon.service
+  - systemctl disable motd-news.timer
+  - systemctl disable irqbalance.service
+  - systemctl disable rsync.service
+  - systemctl disable ebtables.service
+  - systemctl disable pollinate.service
+  - systemctl disable ufw.service
+  - systemctl disable apparmor.service
+  - systemctl disable apport-autoreport.path
+  - systemctl disable apport-forward.socket
+  - systemctl disable iscsi.service
+  - systemctl disable open-iscsi.service
+  - systemctl disable iscsid.socket
+  - systemctl disable multipathd.socket
+  - systemctl disable multipath-tools.service
+  - systemctl disable multipathd.service
+  - systemctl disable lvm2-monitor.service
+  - systemctl disable lvm2-lvmpolld.socket
+  - systemctl disable lvm2-lvmetad.socket
+apt:
+  preserve_sources_list: false
+  primary:
+    - arches: [default]
+      uri: http://us.archive.ubuntu.com/ubuntu
+  sources_list: |
+    deb $MIRROR $RELEASE main restricted universe multiverse
+    deb $MIRROR $RELEASE-updates main restricted universe multiverse
+    deb $MIRROR $RELEASE-proposed main restricted universe multiverse
+    deb-src $MIRROR $RELEASE main restricted universe multiverse
+    deb-src $MIRROR $RELEASE-updates main restricted universe multiverse
+    deb-src $MIRROR $RELEASE-proposed main restricted universe multiverse
+  conf: |
+    Dpkg::Options {
+      "--force-confdef";
+      "--force-confold";
+    };
+  sources:
+    debug.list:
+      source: |
+        # deb http://ddebs.ubuntu.com $RELEASE main restricted universe multiverse
+        # deb http://ddebs.ubuntu.com $RELEASE-updates main restricted universe multiverse
+        # deb http://ddebs.ubuntu.com $RELEASE-proposed main restricted universe multiverse
+      keyid: C8CAB6595FDFF622
+Important - this is just an example to show a bit of cloud-init capabilities. Feel free to change this at your will.
+
+Check if the SCSI reservation feature works
+After provisioning machines clubionic01, clubionic02, clubionic03 (Standard D2s v3 with 2 vCPUs and 8 GiB memory) with Linux Ubuntu Bionic (18.04), using the same resource-group (clubionic), located in West Central US - at the time of this write this was the only location supporting the shared SCSI disk feature - AND having the same proximity placement group (clubionicplacement), you will be able to access all the virtual machines through their public IPs… and make sure the shared disk works as a fencing mechanism by testing SCSI persistent reservations using the “sg3-utils” tools.
+Run these commands in at least 1 node after the shared disk attached to it:
+clubionic01
+· Read current reservations
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist -r  /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+·   PR generation=0x0, there is NO reservation held
+· Register new reservation key 0x123abc
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist --out --register \
+·   --param-sark=123abc /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+· Reserve the DEVICE with write exclusive permission
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist --out --reserve \
+·   --param-rk=123abc --prout-type=5 /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+· Check the reservation just made
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist -r /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+·   PR generation=0x3, Reservation follows:
+·     Key=0x123abc
+·     scope: LU_SCOPE,  type: Write Exclusive, registrants only
+· Release the reservation
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist --out --release \
+·   --param-rk=123abc --prout-type=5 /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+· Unregister previously registered reservation key
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist --out --register \
+·   --param-rk=123abc /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+· Make sure reservation is gone
+· rafaeldtinoco@clubionic01:~$ sudo sg_persist -r /dev/sdc
+·   Msft      Virtual Disk      1.0
+·   Peripheral device type: disk
+·   PR generation=0x4, there is NO reservation held
+Begin
+Cluster Network
+Now it is time to configure the cluster network. In the beginning of this recipe you saw there were 2 subnet created in the virtual network assigned to this environment:
+clubionicnet            Virtual network
+    subnets:
+    - private           10.250.3.0/24
+    - public            10.250.98.0/24
+Since there might be a limit of 2 extra virtual network adapters attached to your VMs, we are doing the minimum required amount of networks for the HA cluster to operate in good conditions.
+· Public Network
+This is the network where the HA cluster virtual IPs will be placed on. This
+means that every cluster node will have 1 IP from this subnet assigned to
+itself and possibly a floating IP, depending on where the service is running
+(the resource is active).
+· Private Network
+is “internal-to-cluster” interface where all the cluster nodes will
+continuously exchange messages regarding the cluster state. This network is
+important as corosync relies on it to know if the cluster nodes are online or
+not.
+It is also possible to create a 2nd virtual adapter to each of the nodes for a
+2nd ring in the cluster messaging layer. Depending on how you configure 2nd
+ring it may either reduce delays in message delivering OR duplicating all
+cluster messages to maximize availability.
+Instructions
+· Provision the 3 VMs with 2 network interfaces each (public & private)
+· Make sure that, when started, all 3 of them have an external IP (to access)
+· A 4th machine is possible (just to access the env, depending on topology)
+· Make sure both, public and private networks are configured as:
+clubionic01:
+ - public   = 10.250.98.10/24
+ - private  = 10.250.3.10/24
+ 
+clubionic02:
+ - public   = 10.250.98.11/24
+ - private  = 10.250.3.11/24
+ 
+clubionic03:
+ - public   = 10.250.98.12/24
+ - private  = 10.250.3.12/24
+Important - And that all interfaces are have to be configured as static despite being provided by the cloud environment through DHCP. The lease renew attempts of a DHCP client might interfere in the cluster communication and cause false positives for resource failures.
+Ubuntu Networking
+(ifupdown VS netplan.io + systemd-networkd)
+Ubuntu Bionic Cloud Images, deployed by Microsoft Azure in our VMs, come, by default, installed with netplan.io network tool installed, using systemd-networkd as its backend network provider.
+This means that all the network interfaces are being configured and managed by
+systemd. Unfortunately, because of bug LP: #1815101, currently being worked on, any HA environment that needs to have virtual aliases configured should rely in the previous ifupdown network management method.
+This happens because systemd-networkd AND netplan.io have to be fixed in
+order to correctly restart interfaces containing virtual aliases being controlled by HA software.
+Instructions on how to remove netplan.io AND install ifupdown + resolvconf packages:
+$ sudo apt-get remove --purge netplan.io
+$ sudo apt-get install ifupdown bridge-utils vlan resolvconf
+$ sudo apt-get install cloud-init
+ 
+$ sudo rm /etc/netplan/50-cloud-init.yaml
+$ sudo vi /etc/cloud/cloud.cfg.d/99-custom-networking.cfg
+$ sudo cat /etc/cloud/cloud.cfg.d/99-custom-networking.cfg
+network: {config: disabled}
+Configure the interfaces using ifupdown:
+$ cat /etc/network/interfaces
+ 
+auto lo
+iface lo inet loopback
+        dns-nameserver 168.63.129.16
+ 
+# public
+ 
+auto eth0
+iface eth0 inet static
+        address 10.250.98.10
+        netmask 255.255.255.0
+        gateway 10.250.98.1
+ 
+# private
+ 
+auto eth1
+iface eth1 inet static
+        address 10.250.3.10
+        netmask 255.255.255.0
+ 
+Adjust /etc/hosts:
+ 
+$ cat /etc/hosts
+127.0.0.1 localhost
+ 
+::1 ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+Disable systemd-networkd:
+$ sudo systemctl disable systemd-networkd.service \
+  systemd-networkd.socket systemd-networkd-wait-online.service \
+  systemd-resolved.service
+ 
+$ sudo update-initramfs -k all -u
+Make sure grub configuration is right:
+$ cat /etc/default/grub
+ 
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=5
+GRUB_DISTRIBUTOR="Ubuntu"
+GRUB_CMDLINE_LINUX_DEFAULT="console=tty1 console=ttyS0 earlyprintk=ttyS0 rootdelay=300 elevator=noop apparmor=0"
+GRUB_CMDLINE_LINUX=""
+GRUB_TERMINAL=serial
+GRUB_SERIAL_COMMAND="serial --speed=9600 --unit=0 --word=8 --parity=no --stop=1"
+GRUB_RECORDFAIL_TIMEOUT=0
+ 
+$ sudo update-grub
+Make sure clock is synchronized:
+rafaeldtinoco@clubionic01:~$ sudo timedatectl set-ntp true
+and reboot (stop and start the instance so grub command line is changed).
+$ ifconfig -a
+eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.250.98.10  netmask 255.255.255.0  broadcast 10.250.98.255
+        inet6 fe80::20d:3aff:fef8:6551  prefixlen 64  scopeid 0x20<link>
+        ether 00:0d:3a:f8:65:51  txqueuelen 1000  (Ethernet)
+        RX packets 483  bytes 51186 (51.1 KB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 415  bytes 65333 (65.3 KB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+ 
+eth1: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500
+        inet 10.250.3.10  netmask 255.255.255.0  broadcast 10.250.3.255
+        inet6 fe80::20d:3aff:fef8:3d01  prefixlen 64  scopeid 0x20<link>
+        ether 00:0d:3a:f8:3d:01  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 11  bytes 866 (866.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+ 
+lo: flags=73<UP,LOOPBACK,RUNNING>  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10<host>
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 84  bytes 6204 (6.2 KB)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 84  bytes 6204 (6.2 KB)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+Important - cluster nodes must have ifupdown installed and systemd-networkd + netplan.io disabled. Interfaces managed by the resource manager (to be seen ahead in this doc) won’t be configured through ifupdown nor systemd-networkd.
+Configure the Messaging Layer
+First make sure the file /etc/hosts is the same in all cluster nodes. Make sure you have something similar to:
+rafaeldtinoco@clubionic01:~$ cat /etc/hosts
+127.0.0.1 localhost
+127.0.1.1 clubionic01
+ 
+::1 ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+ff02::3 ip6-allhosts
+ 
+# cluster
+ 
+10.250.98.13 clubionic       # floating IP (application)
+ 
+10.250.98.10 bionic01        # node01 public IP
+10.250.98.11 bionic02        # node02 public IP
+10.250.98.12 bionic03        # node03 public IP
+ 
+10.250.3.10 clubionic01      # node01 ring0 private IP
+10.250.3.11 clubionic02      # node02 ring0 private IP
+10.250.3.12 clubionic03      # node03 ring0 private IP
+And that all names are accessible from all nodes:
+$ ping clubionic01
+Important Fixes
+	1. Before moving on make sure you have installed the following package versions:
+· pacemaker      1.1.18-0ubuntu1.2
+· fence-agents  4.0.25-2ubuntu1.1
+Install corosync, the messaging layer, in all the 3 nodes:
+$ sudo apt-get install corosync corosync-doc
+and, with packages properly installed, create the corosync.conf file:
+$ sudo cat /etc/corosync/corosync.conf
+totem {
+        version: 2
+        secauth: off
+        cluster_name: clubionic
+        transport: udpu
+}
+ 
+nodelist {
+        node {
+                ring0_addr: 10.250.3.10
+                # ring1_addr: 10.250.4.10
+                name: clubionic01
+                nodeid: 1
+        }
+        node {
+                ring0_addr: 10.250.3.11
+                # ring1_addr: 10.250.4.11
+                name: clubionic02
+                nodeid: 2
+        }
+        node {
+                ring0_addr: 10.250.3.12
+                # ring1_addr: 10.250.4.12
+                name: clubionic03
+                nodeid: 3
+        }
+}
+ 
+quorum {
+        provider: corosync_votequorum
+        two_node: 0
+}
+ 
+qb {
+        ipc_type: native
+}
+ 
+logging {
+ 
+        fileline: on
+        to_stderr: on
+        to_logfile: yes
+        logfile: /var/log/corosync/corosync.log
+        to_syslog: no
+        debug: off
+ 
+}
+Before restarting corosync service with this new configuration, we have to create a corosync key file and share among all the cluster nodes:
+rafaeldtinoco@clubionic01:~$ sudo corosync-keygen
+ 
+Corosync Cluster Engine Authentication key generator.
+Gathering 1024 bits for key from /dev/random.
+Press keys on your keyboard to generate entropy.
+Press keys on your keyboard to generate entropy (bits = 920).
+Press keys on your keyboard to generate entropy (bits = 1000).
+Writing corosync key to /etc/corosync/authkey.
+ 
+rafaeldtinoco@clubionic01:~$ sudo scp /etc/corosync/authkey \
+        root@clubionic02:/etc/corosync/authkey
+ 
+rafaeldtinoco@clubionic01:~$ sudo scp /etc/corosync/authkey \
+        root@clubionic03:/etc/corosync/authkey
+NOW we are ready to make corosync service started by default:
+rafaeldtinoco@clubionic01:~$ systemctl enable --now corosync
+rafaeldtinoco@clubionic01:~$ systemctl restart corosync
+ 
+rafaeldtinoco@clubionic02:~$ systemctl enable --now corosync
+rafaeldtinoco@clubionic02:~$ systemctl restart corosync
+ 
+rafaeldtinoco@clubionic03:~$ systemctl enable --now corosync
+rafaeldtinoco@clubionic03:~$ systemctl restart corosync
+Attention - Some administrators prefer NOT to have cluster services started automatically. This is usually a good idea if you consider that in case of a failure, and a node is taken outside the cluster, it is a good idea to investigate what happened and that putting that node back on the cluster won’t cause any harm to other nodes and remaining started applications.
+Finally, it is time to check if the messaging layer of our new cluster is good. Don’t worry too much about restarting nodes as the resource-manager (pacemaker) is not installed yet and quorum won’t be enforced.
+rafaeldtinoco@clubionic01:~$ sudo corosync-quorumtool -si
+ 
+Quorum information
+------------------
+Date:             Mon Feb 24 01:54:10 2020
+Quorum provider:  corosync_votequorum
+Nodes:            3
+Node ID:          1
+Ring ID:          1/16
+Quorate:          Yes
+ 
+Votequorum information
+----------------------
+Expected votes:   3
+Highest expected: 3
+Total votes:      3
+Quorum:           2
+Flags:            Quorate
+ 
+Membership information
+----------------------
+    Nodeid      Votes Name
+         1          1 10.250.3.10 (local)
+         2          1 10.250.3.11
+         3          1 10.250.3.12
+Install the resource manager
+With the messaging layer in place, it is time for the resource-manager to be installed and configured. Let’s install the pacemaker packages and create our initial cluster.
+Install pacemaker in all the 3 nodes:
+$ sudo apt-get install pacemaker pacemaker-cli-utils \
+    resource-agents fence-agents crmsh
+Enable pacemaker - the cluster resource-manager - and activate it:
+rafaeldtinoco@clubionic01:~$ systemctl enable --now pacemaker
+rafaeldtinoco@clubionic02:~$ systemctl enable --now pacemaker
+rafaeldtinoco@clubionic03:~$ systemctl enable --now pacemaker
+rafaeldtinoco@clubionic01:~$ sudo crm_mon -1
+Stack: corosync
+Current DC: NONE
+Last updated: Mon Feb 24 01:56:11 2020
+Last change: Mon Feb 24 01:40:53 2020 by hacluster via crmd on clubionic01
+ 
+3 nodes configured
+0 resources configured
+ 
+Node clubionic01: UNCLEAN (offline)
+Node clubionic02: UNCLEAN (offline)
+Node clubionic03: UNCLEAN (offline)
+ 
+No active resources
+As you can see we have to wait until the resource manager uses the messaging transport layer and defines all nodes status. Give it a few seconds to settle and you will have:
+rafaeldtinoco@clubionic01:~$ sudo crm_mon -1
+Stack: corosync
+Current DC: clubionic01 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Mon Feb 24 01:57:22 2020
+Last change: Mon Feb 24 01:40:54 2020 by hacluster via crmd on clubionic02
+ 
+3 nodes configured
+0 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+No active resources
+Configure resource manager for the first time
+Perfect! It is time to do a few “basic” setup for pacemaker. Here, in this doc, I’m using “crmsh” tool to configure the cluster. For Ubuntu Bionic this is the preferred way of configuring pacemaker.
+At any time you can execute crm and navigate a pseudo filesystem of interfaces, each of them containing multiple commands.
+rafaeldtinoco@clubionic01:~$ sudo crm
+ 
+crm(live)# ls
+ 
+cibstatus        help             site
+cd               cluster          quit
+end              script           verify
+exit             ra               maintenance
+bye              ?                ls
+node             configure        back
+report           cib              resource
+up               status           corosync
+options          history
+ 
+crm(live)# cd configure
+ 
+crm(live)configure# ls
+..               get_property     cibstatus
+primitive        set              validate_all
+help             rsc_template     ptest
+back             cd               default-timeouts
+erase            validate-all     rsctest
+rename           op_defaults      modgroup
+xml              quit             upgrade
+group            graph            load
+master           location         template
+save             collocation      rm
+bye              clone            ?
+ls               node             default_timeouts
+exit             acl_target       colocation
+fencing_topology assist           alert
+ra               schema           user
+simulate         rsc_ticket       end
+role             rsc_defaults     monitor
+cib              property         resource
+edit             show             up
+refresh          order            filter
+get-property     tag              ms
+verify           commit           history
+delete
+And you can even edit the CIB file for the cluster:
+rafaeldtinoco@clubionic01:~$ crm configure edit
+rafaeldtinoco@clubionic01:~$ crm
+crm(live)# cd configure
+crm(live)configure# edit
+crm(live)configure# commit
+INFO: apparently there is nothing to commit
+INFO: try changing something first
+Let’s check the current cluster configuration:
+rafaeldtinoco@clubionic01:~$ crm configure show
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic
+Two important things before we attempt to configure any resource:
+	1. we are missing a “watchdog” device
+	2. there is no “fencing” configured for the cluster.
+Important - Explaining what the watchdog mechanism is or how fencing works is beyond the scope of this document. Do have in mind that an high availability cluster 1 has to be configured correctly in order to be supported AND having the correct amount of votes in a cluster split scenario AND a way to fence the remaining nodes is imperative.
+Nevertheless - For this example it is mandatory that pacemaker knows how to decide which side of the cluster is the one that should be still enabled WHEN there is a problem in one of the participating nodes. In our example we will use 3 nodes so each remaining 2 nodes can form a new cluster when fencing 1 possible fenced node.
+Some basic information regarding HA clusters
+Usually fencing comes in the form of power fencing: The quorate side of the cluster is able to get a positive response from the fencing mechanism of the problematic side through an external communication path (remaining cluster nodes can still reach the ILO/BMC network).
+For our case, we are going to use shared SCSI disk and its SCSI3 feature called SCSI PERSISTENT RESERVATIONS as the fencing mechanism: Every time the messaging ring faces a disruption, the quorate side (in this 3-node example: the side that still has 2 nodes communicating through the private ring network) will make sure to fence the other node.
+Other node will be fenced using SCSI PERSISTENT RESERVATION (a remaining node in this recently formed 2 node cluster will remove the reservation key used by the node to be fenced). This will make the fenced node unable to do any I/O to the shared disk AND that is why your application HAS to have all its data in the shared disk).
+Other fencing mechanisms support “reboot/reset” action whenever the quorate cluster wants to fence a node. Let’s start calling things by name:
+· pacemaker has a service called stonith (shot the other node in the head) and that’s how it executes fencing actions: by having fencing agents (fence_scsi in our case) configured in the resource manager AND having arguments given to these agents that will execute programmed actions to shoot the other node in the head.
+Since fence_scsi agent does not have a reboot/reset action, it is good to have a watchdog device capable of realizing that the node cannot read and/or write to a shared disk and kill itself whenever that happens.
+With fence_scsi + a watchdog device we have a complete solution for HA: a fencing mechanism that will block the fenced node to read or write from the application disk (saving a filesystem from being corrupted) AND a watchdog device that will, as soon as it realizes the node has been fenced, reset the node.
+Watchdog Device
+There are multiple HW watchdog devices around but if you don’t have one in your HW (and/or virtual machine) you can always count with the in-kernel software watchdog device: the softdog.
+$ apt-get install watchdog
+For the questions when installing the “watchdog” package, make sure to set:
+Watchdog module to preload: softdog
+and all the others to default. Install the “watchdog” package in all 3 nodes.
+Of course watchdog daemon (and kernel module) won’t do anything to pacemaker by themselves. We have to tell watchdog that we would like it to check for the fence_scsi shared disks access from time to time.
+The way we do this is:
+$ apt-file search fence_scsi_check
+fence-agents: /usr/share/cluster/fence_scsi_check
+ 
+$ sudo mkdir /etc/watchdog.d/
+$ sudo cp /usr/share/cluster/fence_scsi_check /etc/watchdog.d/
+$ systemctl restart watchdog
+ 
+$ ps -ef | grep watch
+root        41     2  0 00:10 ?        00:00:00 [watchdogd]
+root      8612     1  0 02:21 ?        00:00:00 /usr/sbin/watchdog
+Also do that for all the 3 nodes.
+After configuring watchdog, let's keep it disabled and stopped until we are satisfied with our cluster configuration. This will prevent our cluster nodes to be fenced by accident during resources configuration.
+$ systemctl disable watchdog
+Synchronizing state of watchdog.service with SysV service script with /lib/systemd/systemd-sysv-install.
+Executing: /lib/systemd/systemd-sysv-install disable watchdog
+ 
+$ systemctl stop watchdog
+Basic cluster configuration items
+Our cluster has **fence_scsi" resource to fence a node AND watchdog devices (/dev/watchdog) created by the kernel module “softdog” and managed by the watchdog daemon, which executes our fence_scsi_check script.
+Our cluster will have a fence_scsi resource to fence a node and a watchdog device to shutdown/reset the node in case we are the ones being fenced.
+Let’s tell this to the cluster:
+rafaeldtinoco@clubionic01:~$ crm configure
+crm(live)configure# property stonith-enabled=on
+crm(live)configure# property stonith-action=off
+crm(live)configure# property no-quorum-policy=stop
+crm(live)configure# property have-watchdog=true
+crm(live)configure# commit
+crm(live)configure# end
+crm(live)# end
+bye
+rafaeldtinoco@clubionic01:~$ crm configure show
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+property cib-bootstrap-options: \
+        have-watchdog=true \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop
+By telling pacemaker we have a watchdog device, and what is our fencing policy, we also have to configure a fence resource that will be running at the cluster.
+	1. Make sure no reservations are in place for the shared disk you will use
+	2. Make sure all the applications that will be managed by pacemaker agents
+do have their data in the shared disk to be used
+	3. Make sure the shared disk has the same name in all cluster nodes. In this
+example all nodes have “/dev/sda” as the disk name. That is not a good
+practice as the disks might get another device name in other boots. It
+is better to use “/dev/disk/by-path” device paths, for example. I kept
+/dev/sda in this document for the sake of
+simplicity.
+rafaeldtinoco@clubionic03:~$ sudo sg_persist --in --read-keys --device=/dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x0, there are NO registered reservation keys
+ 
+rafaeldtinoco@clubionic03:~$ sudo sg_persist -r /dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x0, there is NO reservation held
+Configure fence_clubionic fence_scsi agent:
+rafaeldtinoco@clubionic01:~$ crm configure primitive fence_clubionic \
+    stonith:fence_scsi params \
+    pcmk_host_list="clubionic01 clubionic02 clubionic03" \
+    devices="/dev/disk/by-path/acpi-VMBUS:01-scsi-0:0:0:0" \
+    meta provides=unfencing
+After creating the fencing agent, make sure it is running:
+rafaeldtinoco@clubionic01:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Mon Feb 24 04:06:15 2020
+Last change: Mon Feb 24 04:06:11 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+1 resource configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic01
+and that the reservations were put in place:
+rafaeldtinoco@clubionic03:~$ sudo sg_persist --in --read-keys --device=/dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x3, 3 registered reservation keys follow:
+    0x3abe0001
+    0x3abe0000
+    0x3abe0002
+Having 3 keys registered show that all the 3 nodes have registered their keys while, when checking which host holds the reservation, you have to see a single node key:
+rafaeldtinoco@clubionic03:~$ sudo sg_persist -r /dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x3, Reservation follows:
+    Key=0x3abe0001
+    scope: LU_SCOPE,  type: Write Exclusive, registrants only
+Testing fencing before moving on
+It is very important we are able to fence nodes. In our case, as we are also using a watchdog device, we want to make sure that our fenced node will reboot in access to the share scsi disk is lost.
+In order to obtain that, we can do a simple test:
+rafaeldtinoco@clubionic01:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic01 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 16:43:01 2020
+Last change: Fri Mar  6 16:38:55 2020 by hacluster via crmd on clubionic01
+ 
+3 nodes configured
+1 resource configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic01
+You can see that fence_clubionic resource is running at clubionic01. With that information, network communication of that particular node can be stopped in order to test fencing and watchdog suicide. Before moving on, check:
+	1. fence_clubionic service has to be started in another node
+	2. clubionic01 (where fence_clubionic is running) will reboot
+rafaeldtinoco@clubionic01:~$ sudo iptables -A INPUT -i eth2 -j DROP
+rafaeldtinoco@clubionic02:~$ crm_mon  -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 16:45:31 2020
+Last change: Fri Mar  6 16:38:55 2020 by hacluster via crmd on clubionic01
+ 
+3 nodes configured
+1 resource configured
+ 
+Online: [ clubionic02 clubionic03 ]
+OFFLINE: [ clubionic01 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+Okay (1) worked. fence_clubionic resource migrated to clubionic02 node AND the reservation key from clubionic01 node was removed from the shared storage:
+rafaeldtinoco@clubionic02:~$ sudo sg_persist --in --read-keys --device=/dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x4, 2 registered reservation keys follow:
+    0x3abe0001
+    0x3abe0002
+After up to 60sec (default timeout for the softdog driver + watchdog daemon):
+[ 596.943649] reboot: Restarting system
+clubionic01 node is rebooted by the watchdog daemon: remember the file /etc/watchdog.d/fence_scsi_check ? that file was responsible for making watchdog daemon to reboot the node when access to the shared scsi disk was lost.
+After the reboot succeeds:
+rafaeldtinoco@clubionic02:~$ sudo sg_persist --in --read-keys --device=/dev/sda
+  LIO-ORG   cluster.bionic.   4.0
+  Peripheral device type: disk
+  PR generation=0x5, 3 registered reservation keys follow:
+    0x3abe0001
+    0x3abe0002
+    0x3abe0000
+rafaeldtinoco@clubionic02:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 16:49:44 2020
+Last change: Fri Mar  6 16:38:55 2020 by hacluster via crmd on clubionic01
+ 
+3 nodes configured
+1 resource configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+ 
+It's all back to normal, but fence_clubionic agent stays where it was:
+clubionic02 node. This cluster behavior is usually to avoid the "ping-pong"
+effect for intermittent failures.
+Configure Resources in Pacemaker
+Now we are going to install a simple web server (lighttpd) service in all the nodes and have it managed by pacemaker. The idea is simple: to have a virtual IP migrating in between the nodes, serving a web server (lighttpd) service with files coming from the shared filesystem disk.
+rafaeldtinoco@clubionic01:~$ apt-get install lighttpd
+rafaeldtinoco@clubionic01:~$ systemctl stop lighttpd.service
+rafaeldtinoco@clubionic01:~$ systemctl disable lighttpd.service
+rafaeldtinoco@clubionic02:~$ apt-get install lighttpd
+rafaeldtinoco@clubionic02:~$ systemctl stop lighttpd.service
+rafaeldtinoco@clubionic02:~$ systemctl disable lighttpd.service
+rafaeldtinoco@clubionic03:~$ apt-get install lighttpd
+rafaeldtinoco@clubionic03:~$ systemctl stop lighttpd.service
+rafaeldtinoco@clubionic03:~$ systemctl disable lighttpd.service
+Having the hostname inside index.html file we will be able to tell us which node
+is active when accessing the virtual IP, that will be migrating among all 3
+nodes:
+rafaeldtinoco@clubionic01:~$ sudo rm /var/www/html/*.html
+rafaeldtinoco@clubionic01:~$ echo $HOSTNAME | sudo tee /var/www/html/index.html
+clubionic01
+rafaeldtinoco@clubionic02:~$ sudo rm /var/www/html/*.html
+rafaeldtinoco@clubionic02:~$ echo $HOSTNAME | sudo tee /var/www/html/index.html
+clubionic02
+rafaeldtinoco@clubionic03:~$ sudo rm /var/www/html/*.html
+rafaeldtinoco@clubionic03:~$ echo $HOSTNAME | sudo tee /var/www/html/index.html
+clubionic03
+And we will have a good way to tell from which source the lighttpd daemon is
+getting its files from:
+rafaeldtinoco@clubionic01:~$ curl localhost
+clubionic01     -> local disk
+rafaeldtinoco@clubionic01:~$ curl clubionic02
+clubionic02     -> local (to clubionic02) disk
+rafaeldtinoco@clubionic01:~$ curl clubionic03
+clubionic03     -> local (to clubionic03) disk
+###Configure the cluster as a HA Active/Passive Cluster
+Next step is to configure the cluster as a HA Active-Passive only cluster. The
+shared disk in this scenario would only work as:
+· a fencing mechanism
+· a shared disk that migrates together with other resources
+rafaeldtinoco@clubionic01:~$ crm configure sh
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" plug="" \
+        devices="/dev/sda" meta provides=unfencing
+primitive virtual_ip IPaddr2 \
+        params ip=10.250.98.13 nic=eth3 \
+        op monitor interval=10s
+primitive webserver systemd:lighttpd \
+        op monitor interval=10 timeout=30
+group webserver_vip webserver virtual_ip
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop
+As you can see I have created 2 resources and 1 group of resources. You can copy and paste the command from above crmsh example and do a commit at the end, it will create the resources for you.
+After creating the resource, check if it is working:
+rafaeldtinoco@clubionic01:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 18:57:54 2020
+Last change: Fri Mar  6 18:52:17 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+3 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+ Resource Group: webserver_vip
+     webserver  (systemd:lighttpd):     Started clubionic01
+     virtual_ip (ocf::heartbeat:IPaddr2):       Started clubionic01
+ 
+rafaeldtinoco@clubionic01:~$ ping -c 1 clubionic.public
+PING clubionic.public (10.250.98.13) 56(84) bytes of data.
+64 bytes from clubionic.public (10.250.98.13): icmp_seq=1 ttl=64 time=0.025 ms
+ 
+--- clubionic.public ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min/avg/max/mdev = 0.025/0.025/0.025/0.000 ms
+And testing if the resource is really active in clubionic01 host:
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic01
+Important - Note that, in this example, we are not using the shared disk for much: only to have a fencing mechanism. This is important, especially in virtual environments that does not give you a power fencing agent, OR this power fencing agent could introduce unneeded delays in all operations: then you should rely in SCSI fencing and watchdog monitoring to guarantee cluster consistence.
+Final step in this HA active/passive cluster example is to also use the shared scsi disk as a HA active/passive resource in pacemaker. It means that the webserver we are clustering will serve files from the shared disk but there won’t be multiple nodes accessing this data simultaneously, just one.
+This example can serve as a clustering example for other services such as: CIFS, SAMBA, NFS, MTAs and MDAs such as postfix/qmail, etc
+Cluster Resource Manager Resource Types
+Note - I’m using “systemd” resource agent standard because it's not relying on older agents and you can check supported agents by executing:
+rafaeldtinoco@clubionic01:~$ crm_resource --list-standards
+ocf
+lsb
+service
+systemd
+stonith
+rafaeldtinoco@clubionic01:~$ crm_resource --list-agents=systemd
+apt-daily
+apt-daily-upgrade
+atd
+autovt@
+bootlogd
+...
+The agents list will be compatible with the software you have installed at the moment you execute that command in a node (as the systemd standard basically uses existing service units from systemd on the nodes).
+Configuring LVM to Migrate in between nodes
+Whenever migrating resources (services/agents) out of a node we first need to deactivate:
+· resource(s) and/or resource group
+· virtual IPs serving the resources
+· filesystems being accessed by resources
+· volume manager
+in order. Later we need to activate, in another node:
+· volume manager
+· filesystems to be accessed by resources
+· virtual IPs serving the resources
+· resource(s) and/or resource group
+For this scenario we are not using “lock managers” of any kind.
+Let’s install LVM2 packages in all nodes:
+$ apt-get install lvm2
+And configure LVM2 to have a system id based in the uname cmd output:
+rafaeldtinoco@clubionic01:~$ sudo vi /etc/lvm/lvm.conf
+...
+        system_id_source = "uname"
+Do that in all 3 nodes.
+rafaeldtinoco@clubionic01:~$ sudo lvm systemid
+  system ID: clubionic01
+rafaeldtinoco@clubionic02:~$ sudo lvm systemid
+  system ID: clubionic02
+rafaeldtinoco@clubionic03:~$ sudo lvm systemid
+  system ID: clubionic03
+Configure 1 partition for the shared disk:
+rafaeldtinoco@clubionic01:~$ sudo gdisk /dev/sda
+GPT fdisk (gdisk) version 1.0.3
+ 
+Partition table scan:
+  MBR: not present
+  BSD: not present
+  APM: not present
+  GPT: not present
+ 
+Creating new GPT entries.
+ 
+Command (? for help): n
+Partition number (1-128, default 1):
+First sector (34-2047966, default = 2048) or {+-}size{KMGTP}:
+Last sector (2048-2047966, default = 2047966) or {+-}size{KMGTP}:
+Current type is 'Linux filesystem'
+Hex code or GUID (L to show codes, Enter = 8300):
+Changed type of partition to 'Linux filesystem'
+ 
+Command (? for help): w
+ 
+Final checks complete. About to write GPT data. THIS WILL OVERWRITE EXISTING
+PARTITIONS!!
+ 
+Do you want to proceed? (Y/N): y
+OK; writing new GUID partition table (GPT) to /dev/sda.
+The operation has completed successfully.
+And create the physical and logical volumes using LVM2:
+rafaeldtinoco@clubionic01:~$ sudo pvcreate /dev/sda1
+ 
+rafaeldtinoco@clubionic01:~$ sudo vgcreate clustervg /dev/sda1
+ 
+rafaeldtinoco@clubionic01:~$ sudo vgs -o+systemid
+  VG        #PV #LV #SN Attr   VSize   VFree   System ID
+  clustervg   1   0   0 wz--n- 988.00m 988.00m clubionic01
+ 
+rafaeldtinoco@clubionic01:~$ sudo lvcreate -l100%FREE -n clustervol clustervg
+  Logical volume "clustervol" created.
+ 
+rafaeldtinoco@clubionic01:~$ sudo mkfs.ext4 -LCLUSTERDATA /dev/clustervg/clustervol
+mke2fs 1.44.1 (24-Mar-2018)
+Creating filesystem with 252928 4k blocks and 63232 inodes
+Filesystem UUID: d0c7ab5c-abf6-4ee0-aee1-ec1ce7917bea
+Superblock backups stored on blocks:
+        32768, 98304, 163840, 229376
+ 
+Allocating group tables: done
+Writing inode tables: done
+Creating journal (4096 blocks): done
+Writing superblocks and filesystem accounting information: done
+ 
+Let's now create a directory to mount this volume in all 3 nodes. Remember, we
+are not *yet* configuring a cluster filesystem. The disk should be mounted
+in one node AT A TIME.
+rafaeldtinoco@clubionic01:~$ sudo mkdir /clusterdata
+rafaeldtinoco@clubionic02:~$ sudo mkdir /clusterdata
+rafaeldtinoco@clubionic03:~$ sudo mkdir /clusterdata
+And, in this particular case, it should be tested in the node that you did all
+the LVM2 commands and created the EXT4 filesystem:
+rafaeldtinoco@clubionic01:~$ sudo mount /dev/clustervg/clustervol /clusterdata
+ 
+rafaeldtinoco@clubionic01:~$ mount | grep cluster
+/dev/mapper/clustervg-clustervol on /clusterdata type ext4 (rw,relatime,stripe=2048,data=ordered)
+Now we can go ahead and disable the volume group:
+rafaeldtinoco@clubionic01:~$ sudo umount /clusterdata
+ 
+rafaeldtinoco@clubionic01:~$ sudo vgchange -an clustervg
+Destroying what we did and re-creating something else
+It’s time to move on, remove the resources we have configured and configure something else. Resources within a resource group are started in the creation order so removing them and re-creating after the new disk/filesystem resource is a simpler configuration change.
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop webserver_vip
+rafaeldtinoco@clubionic01:~$ sudo crm configure delete webserver
+rafaeldtinoco@clubionic01:~$ sudo crm configure delete virtual_ip
+rafaeldtinoco@clubionic01:~$ sudo crm configure sh
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" \
+        plug="" devices="/dev/sda" meta provides=unfencing
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop
+Now we can create the resource responsible for taking care of the LVM volume group migration: ocf:heartbeat:LVM-activate.
+crm(live)configure# primitive lvm2 ocf:heartbeat:LVM-activate vgname=clustervg \
+    vg_access_mode=system_id
+ 
+crm(live)configure# commit
+With only those 2 commands our cluster shall have one of the nodes accessing the volume group “clustervg” we have created. In my case it got enabled in the 2nd node of the cluster:
+rafaeldtinoco@clubionic02:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic01 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 20:59:44 2020
+Last change: Fri Mar  6 20:58:33 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+2 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic01
+ lvm2   (ocf::heartbeat:LVM-activate):  Started clubionic02
+It can be checked by executing:
+rafaeldtinoco@clubionic02:~$ sudo vgs
+  VG        #PV #LV #SN Attr   VSize   VFree
+  clustervg   1   1   0 wz--n- 988.00m    0
+ 
+rafaeldtinoco@clubionic02:~$ sudo lvs
+  LV         VG        Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+  clustervol clustervg -wi-a----- 988.00m
+ 
+rafaeldtinoco@clubionic02:~$ sudo vgs -o+systemid
+  VG        #PV #LV #SN Attr   VSize   VFree System ID
+  clustervg   1   1   0 wz--n- 988.00m    0  clubionic02
+in the appropriate node. One can also check if mount works:
+Let’s now re-create all the resources we had before - you can look at the
+previous examples - in a group called webservergroup.
+crm(live)configure# primitive webserver systemd:lighttpd \
+                    op monitor interval=10 timeout=30
+ 
+crm(live)configure# group webservergroup lvm2 virtual_ip webserver
+ 
+crm(live)configure# commit
+This will make all the resources to be enabled in the same node:
+· lvm2
+· virtual_ip
+· webserver
+because they are part of a resource group and, implicitly, depend on each other.
+rafaeldtinoco@clubionic02:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic01 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 21:05:24 2020
+Last change: Fri Mar  6 21:04:55 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+4 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic01
+ Resource Group: webservergroup
+     lvm2       (ocf::heartbeat:LVM-activate):  Started clubionic02
+     virtual_ip (ocf::heartbeat:IPaddr2):       Started clubionic02
+     webserver  (systemd:lighttpd):     Started clubionic02
+All resources are on-line at the clubionic02 node.
+Configuring the filesystem resource agent
+Perfect. It's time to configure the filesystem mount and umount now. Before moving on, make sure to have installed psmisc package in all nodes.
+crm(live)configure# primitive ext4 ocf:heartbeat:Filesystem device=/dev/clustervg/clustervol directory=/clusterdata fstype=ext4
+ 
+crm(live)configure# del webservergroup
+ 
+crm(live)configure# group webservergroup lvm2 ext4 virtual_ip webserver
+ 
+crm(live)configure# commit
+Verify the webservergroup was correctly started:
+rafaeldtinoco@clubionic02:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic01 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Fri Mar  6 21:16:39 2020
+Last change: Fri Mar  6 21:16:36 2020 by hacluster via crmd on clubionic03
+ 
+3 nodes configured
+5 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic01
+ Resource Group: webservergroup
+     lvm2       (ocf::heartbeat:LVM-activate):  Started clubionic03
+     ext4       (ocf::heartbeat:Filesystem):    Started clubionic03
+     virtual_ip (ocf::heartbeat:IPaddr2):       Started clubionic03
+     webserver  (systemd:lighttpd):     Started clubionic03
+ 
+rafaeldtinoco@clubionic03:~$ mount | grep -i clu
+/dev/mapper/clustervg-clustervol on /clusterdata type ext4 (rw,relatime,stripe=2048,data=ordered)
+And this is what makes our new cluster environment perfect to host any HA application: a shared disk that will migrate in between nodes allowing maximum availability: as the physical and logical volumes migrate from one not to another, configured services also migrate.
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic03
+ 
+rafaeldtinoco@clubionic01:~$ crm resource move webservergroup clubionic01
+INFO: Move constraint created for webservergroup to clubionic01
+ 
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic01
+But there is still one configuration left: our webservers aren’t configured in to point to data contained in the shared disk yet. We can start serving files/data from the volume that is currently being managed by the cluster.
+In the node with the resource group “webservergroup” you can do:
+rafaeldtinoco@clubionic01:~$ sudo rsync -avz /var/www/ /clusterdata/www/
+sending incremental file list
+created directory /clusterdata/www
+./
+cgi-bin/
+html/
+html/index.html
+ 
+rafaeldtinoco@clubionic01:~$ sudo rm -rf /var/www
+rafaeldtinoco@clubionic01:~$ sudo ln -s /clusterdata/www /var/www
+rafaeldtinoco@clubionic01:~$ cd /clusterdata/www/html/
+rafaeldtinoco@clubionic01:.../html$ echo clubionic | sudo tee index.html
+and in all other nodes:
+rafaeldtinoco@clubionic02:~$ sudo rm -rf /var/www
+rafaeldtinoco@clubionic02:~$ sudo ln -s /clusterdata/www /var/www
+rafaeldtinoco@clubionic03:~$ sudo rm -rf /var/www
+rafaeldtinoco@clubionic03:~$ sudo ln -s /clusterdata/www /var/www
+and test the fact that, now, data being distributed by the webserver lighttpd is
+shared among the nodes in an active-passive way:
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic
+ 
+rafaeldtinoco@clubionic01:~$ crm resource move webservergroup clubionic02
+INFO: Move constraint created for webservergroup to clubionic02
+ 
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic
+ 
+rafaeldtinoco@clubionic01:~$ crm resource move webservergroup clubionic03
+INFO: Move constraint created for webservergroup to clubionic03
+ 
+rafaeldtinoco@clubionic01:~$ curl clubionic.public
+clubionic
+MID-TERM Summary:
+, so… we’ve done already 3 important things with our scsi-shared-disk
+fenced (+ watchdogged) cluster:
+We have done so far:
+· Configured SCSI persistent-reservation based fencing (fence_scsi)
+· Configured watchdog daemon to fence a host without reservations
+· Configured a HA resource group that migrates disk, ip and service among nodes
+Going Further: Distributed Lock Manager
+It is time to go further and make all the nodes to access the same filesystem in simultaneously from the shared disk being managed by the cluster. This allows different applications - perhaps in different resource groups - to be enabled in different nodes simultaneously while accessing the
+same disk.
+Let’s install the distributed lock manager in all cluster nodes:
+rafaeldtinoco@clubionic01:~$ apt-get install -y dlm-controld
+rafaeldtinoco@clubionic02:~$ apt-get install -y dlm-controld
+rafaeldtinoco@clubionic03:~$ apt-get install -y dlm-controld
+Important - Before enabling dlm-controld service you should disable the watchdog daemon if you haven’t already. It may cause problems by rebooting your cluster nodes.
+Check that dlm service has started successfully:
+rafaeldtinoco@clubionic01:~$ systemctl status dlm
+● dlm.service - dlm control daemon
+   Loaded: loaded (/etc/systemd/system/dlm.service; enabled; vendor preset: enabled)
+   Active: active (running) since Fri 2020-03-06 20:25:05 UTC; 1 day 22h ago
+     Docs: man:dlm_controld
+           man:dlm.conf
+           man:dlm_stonith
+ Main PID: 4029 (dlm_controld)
+    Tasks: 2 (limit: 2338)
+   CGroup: /system.slice/dlm.service
+           └─4029 /usr/sbin/dlm_controld --foreground
+and, if it didn’t, try removing the dlm module:
+rafaeldtinoco@clubionic01:~$ sudo modprobe -r dlm
+and reloading it again:
+rafaeldtinoco@clubionic01:~$ sudo modprobe dlm
+as this might happen because udev rules were not interpreted yet during package installation and devices /dev/misc/XXXX were not created. One way of guaranteeing dlm will always find correct devices is to add it to /etc/modules file:
+  rafaeldtinoco@clubionic01:~$ cat /etc/modules
+  virtio_balloon
+  virtio_blk
+  virtio_net
+  virtio_pci
+  virtio_ring
+  virtio
+  ext4
+  9p
+  9pnet
+  9pnet_virtio
++ dlm
+So it is loaded during boot time:
+rafaeldtinoco@clubionic01:~$ sudo update-initramfs -k all -u
+ 
+rafaeldtinoco@clubionic01:~$ sudo reboot
+ 
+rafaeldtinoco@clubionic01:~$ systemctl --value is-active corosync.service
+active
+ 
+rafaeldtinoco@clubionic01:~$ systemctl --value is-active pacemaker.service
+active
+ 
+rafaeldtinoco@clubionic01:~$ systemctl --value is-active dlm.service
+active
+ 
+rafaeldtinoco@clubionic01:~$ systemctl --value is-active watchdog.service
+inactive
+And, after making sure it works, disable dlm service:
+rafaeldtinoco@clubionic01:~$ systemctl disable dlm
+rafaeldtinoco@clubionic02:~$ systemctl disable dlm
+rafaeldtinoco@clubionic03:~$ systemctl disable dlm
+because dlm_controld daemon will be managed by the cluster resource manager (pacemaker). Remember - watchdog service will be enabled at the end, because it is watchdog daemon that reboots/resets the node after SCSI disk is fenced.
+Configure Cluster LVM2 Locking and DLM
+In order to install the cluster filesystem (GFS2) we will be able to remove
+the configuration we did in the cluster again!
+rafaeldtinoco@clubionic01:~$ sudo crm conf show
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive ext4 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=ext4
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" plug="" \
+        devices="/dev/sda" meta provides=unfencing target-role=Started
+primitive lvm2 LVM-activate \
+        params vgname=clustervg vg_access_mode=system_id
+primitive virtual_ip IPaddr2 \
+        params ip=10.250.98.13 nic=eth3 \
+        op monitor interval=10s
+primitive webserver systemd:lighttpd \
+        op monitor interval=10 timeout=30
+group webservergroup lvm2 ext4 virtual_ip webserver \
+        meta target-role=Started
+location cli-prefer-webservergroup webservergroup role=Started inf: clubionic03
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop \
+        last-lrm-refresh=1583529396
+ 
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop webservergroup
+rafaeldtinoco@clubionic01:~$ sudo crm conf delete webservergroup
+ 
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop webserver
+rafaeldtinoco@clubionic01:~$ sudo crm conf delete webserver
+ 
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop virtual_ip
+rafaeldtinoco@clubionic01:~$ sudo crm conf delete virtual_ip
+ 
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop lvm2
+rafaeldtinoco@clubionic01:~$ sudo crm conf delete lvm2
+ 
+rafaeldtinoco@clubionic01:~$ sudo crm resource stop ext4
+rafaeldtinoco@clubionic01:~$ sudo crm conf delete ext4
+ 
+rafaeldtinoco@clubionic01:~$ crm conf sh
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" \
+        plug="" devices="/dev/sda" meta provides=unfencing target-role=Started
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop \
+        last-lrm-refresh=1583529396
+Re-creating the resources
+Because now we want multiple cluster nodes to access simultaneously LVM volumes in an active/active way, we have to install clvm package. This package provides the clustering interface for LVM2, when used with corosync based (eg Pacemaker) cluster infrastructure. It allows logical volumes to be created on shared storage devices (eg Fiber Channel, or iSCSI).
+rafaeldtinoco@clubionic01:~$ egrep "^\s+locking_type" /etc/lvm/lvm.conf
+        locking_type = 1
+The type being:
+· 0 = no locking
+· 1 = local file-based locking
+· 2 = external shared lib locking_library
+· 3 = built-in clustered locking with clvmd
+· 4 = read-only locking (forbids metadata changes)
+· 5 = dummy locking
+Let's change LVM locking type to clustered in all 3 nodes:
+rafaeldtinoco@clubionic01:~$ sudo lvmconf --enable-cluster
+rafaeldtinoco@clubionic02:~$ ...
+rafaeldtinoco@clubionic03:~$ ...
+rafaeldtinoco@clubionic01:~$ egrep "^\s+locking_type" /etc/lvm/lvm.conf
+rafaeldtinoco@clubionic02:~$ ...
+rafaeldtinoco@clubionic03:~$ ...
+    locking_type = 3
+rafaeldtinoco@clubionic01:~$ systemctl disable lvm2-lvmetad.service
+rafaeldtinoco@clubionic02:~$ ...
+rafaeldtinoco@clubionic03:~$ ...
+Finally, enable clustered LVM resource in the cluster:
+· clubionic01 storage resources
+crm(live)configure# primitive clubionic01_dlm ocf:pacemaker:controld op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# primitive clubionic01_lvm ocf:heartbeat:clvm op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# group clubionic01_storage clubionic01_dlm clubionic01_lvm
+ 
+crm(live)configure# location l_clubionic01_storage clubionic01_storage \
+    rule -inf: #uname ne clubionic01
+· clubionic02 storage resources
+crm(live)configure# primitive clubionic02_dlm ocf:pacemaker:controld op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# primitive clubionic02_lvm ocf:heartbeat:clvm op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# group clubionic02_storage clubionic02_dlm clubionic02_lvm
+ 
+crm(live)configure# location l_clubionic02_storage clubionic02_storage \
+    rule -inf: #uname ne clubionic02
+· clubionic03 storage resources
+crm(live)configure# primitive clubionic03_dlm ocf:pacemaker:controld op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# primitive clubionic03_lvm ocf:heartbeat:clvm op \
+    monitor interval=10s on-fail=fence interleave=true ordered=true
+ 
+crm(live)configure# group clubionic03_storage clubionic03_dlm clubionic03_lvm
+ 
+crm(live)configure# location l_clubionic03_storage clubionic03_storage \
+    rule -inf: #uname ne clubionic03
+ 
+crm(live)configure# commit
+
+Important - I created the resource groups one by one and specified they could run in just one node each. This is basically to guarantee that all nodes will have the services clvmd and dlm_controld always running (or restarted in case of issues). Another possibility would be to have those 2 services started by systemd on each node but then the service restart would have to be done by systemd in case of software (of these daemons) problems.
+rafaeldtinoco@clubionic01:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Mon Mar  9 02:18:51 2020
+Last change: Mon Mar  9 02:17:58 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+7 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+ Resource Group: clubionic01_storage
+     clubionic01_dlm    (ocf::pacemaker:controld):      Started clubionic01
+     clubionic01_lvm    (ocf::heartbeat:clvm):  Started clubionic01
+ Resource Group: clubionic02_storage
+     clubionic02_dlm    (ocf::pacemaker:controld):      Started clubionic02
+     clubionic02_lvm    (ocf::heartbeat:clvm):  Started clubionic02
+ Resource Group: clubionic03_storage
+     clubionic03_dlm    (ocf::pacemaker:controld):      Started clubionic03
+     clubionic03_lvm    (ocf::heartbeat:clvm):  Started clubionic03
+So… now we are ready to have a clustered filesystem running in this cluster!
+Configure Clustered Filesystem
+Before creating the “clustered” volume group in LVM, I’m going to remove the
+previous volume group and volumes we had:
+rafaeldtinoco@clubionic03:~$ sudo vgchange -an clustervg
+rafaeldtinoco@clubionic03:~$ sudo vgremove clustervg
+rafaeldtinoco@clubionic03:~$ sudo pvremove /dev/sda1
+And re-create them as “clustered”:
+rafaeldtinoco@clubionic03:~$ sudo pvcreate /dev/sda1
+rafaeldtinoco@clubionic03:~$ sudo vgcreate -Ay -cy --shared clustervg /dev/sda1
+From man page:
+–shared
+Create a shared VG using lvmlockd if LVM is compiled with lockd support. lvmlockd will select lock type san‐ lock or dlm depending on which lock manager is running. This allows multiple hosts to share a VG on shared devices. lvmlockd and a lock manager must be configured and running.
+rafaeldtinoco@clubionic03:~$ sudo vgs
+  VG        #PV #LV #SN Attr   VSize   VFree
+  clustervg   1   0   0 wz--nc 988.00m 988.00m
+ 
+rafaeldtinoco@clubionic03:~$ sudo lvcreate -l 100%FREE -n clustervol clustervg
+Important:
+	1. In order for you to be able to create the physical volume, the volume
+group and the logical volume, the following services must be started:
+· dlm.service
+· lvm2-cluster-activation
+	1. After you have created the logical volume, and the clustered filesystem, you will then, and only then, stop and disable those services so pacemaker, the resource agent, can manage the start/stop of the needed daemons (because in our example dlm, clvm AND gfs2 resources are managed by the cluster).
+rafaeldtinoco@clubionic01:~$ apt-get install gfs2-utils
+rafaeldtinoco@clubionic02:~$ apt-get install gfs2-utils
+rafaeldtinoco@clubionic03:~$ apt-get install gfs2-utils
+rafaeldtinoco@clubionic01:~$ sudo mkfs.gfs2 -j3 -p lock_dlm \
+    -t clubionic:clustervol /dev/clustervg/clustervol
+· 3 journals (1 per each node is minimum)
+· use lock_dlm as the locking protocol
+· -t clustername:lockspace
+The “lock table” pair used to uniquely identify this filesystem in a cluster. The cluster name segment (maxi‐ mum 32 characters) must match the name given to your cluster in its configuration; only members of this cluster are permitted to use this file system. The lockspace segment (maximum 30 characters) is a unique file system name used to distinguish this gfs2 file system. Valid clusternames and lockspaces may only contain alphanumeric characters, hyphens (-) and underscores (_).
+Are you sure you want to proceed? [y/n]y
+Discarding device contents (may take a while on large devices): Done
+Adding journals: Done
+Building resource groups: Done
+Creating quota file: Done
+Writing superblock and syncing: Done
+Device:                    /dev/clustervg/clustervol
+Block size:                4096
+Device size:               0.96 GB (252928 blocks)
+Filesystem size:           0.96 GB (252927 blocks)
+Journals:                  3
+Resource groups:           6
+Locking protocol:          "lock_dlm"
+Lock table:                "clubionic:clustervol"
+UUID:                      dac96896-bd83-d9f4-c0cb-e118f5572e0e
+rafaeldtinoco@clubionic01:~$ sudo mount /dev/clustervg/clustervol /clusterdata \
+    sudo umount /clusterdata
+rafaeldtinoco@clubionic02:~$ sudo mount /dev/clustervg/clustervol /clusterdata \
+    sudo umount /clusterdata
+rafaeldtinoco@clubionic03:~$ sudo mount /dev/clustervg/clustervol /clusterdata \
+    sudo umount /clusterdata
+
+Now, since we want to add a new resource in an already existing resource group, I’ll execute the command: “crm configure edit” and manually edit the cluster configuration file to this:
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive clubionic01_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic01_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic01_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic02_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic02_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic02_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic03_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic03_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic03_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" plug="" \
+        devices="/dev/sda" meta provides=unfencing target-role=Started
+group clubionic01_storage clubionic01_dlm clubionic01_lvm clubionic01_gfs2
+group clubionic02_storage clubionic02_dlm clubionic02_lvm clubionic02_gfs2
+group clubionic03_storage clubionic03_dlm clubionic03_lvm clubionic03_gfs2
+location l_clubionic01_storage clubionic01_storage \
+        rule -inf: #uname ne clubionic01
+location l_clubionic02_storage clubionic02_storage \
+        rule -inf: #uname ne clubionic02
+location l_clubionic03_storage clubionic03_storage \
+        rule -inf: #uname ne clubionic03
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop \
+        last-lrm-refresh=1583708321
+# vim: set filetype=pcmk:
+Important
+	1. I have created the following resources:
+	o clubionic01_gfs2
+	o clubionic02_gfs2
+	o clubionic03_gfs2
+	and added them to each of their correspondent groups.
+The final result is:
+rafaeldtinoco@clubionic02:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Mon Mar  9 03:26:43 2020
+Last change: Mon Mar  9 03:24:14 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+10 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+ Resource Group: clubionic01_storage
+     clubionic01_dlm    (ocf::pacemaker:controld):      Started clubionic01
+     clubionic01_lvm    (ocf::heartbeat:clvm):  Started clubionic01
+     clubionic01_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic01
+ Resource Group: clubionic02_storage
+     clubionic02_dlm    (ocf::pacemaker:controld):      Started clubionic02
+     clubionic02_lvm    (ocf::heartbeat:clvm):  Started clubionic02
+     clubionic02_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic02
+ Resource Group: clubionic03_storage
+     clubionic03_dlm    (ocf::pacemaker:controld):      Started clubionic03
+     clubionic03_lvm    (ocf::heartbeat:clvm):  Started clubionic03
+     clubionic03_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic03
+And each of the nodes having the proper GFS2 filesystem mounted:
+rafaeldtinoco@clubionic01:~$ for node in clubionic01 clubionic02 \
+    clubionic03; do ssh $node "df -kh | grep cluster"; done
+ 
+/dev/mapper/clustervg-clustervol  988M  388M  601M  40% /clusterdata
+/dev/mapper/clustervg-clustervol  988M  388M  601M  40% /clusterdata
+/dev/mapper/clustervg-clustervol  988M  388M  601M  40% /clusterdata
+Multiple Pacemaker Resources sharing same Filesystem
+We can now go back to the previous - and original - idea of having lighttpd resources serving files from the same shared filesystem. Remember, in the previous way we had lighttpd serving files from the shared disk we had the cluster configured as an active/passive cluster.
+Some Important Notes
+	1. This is just an example and this setup isn’t specifically good for anything but to show pacemaker working in an environment like this. I’m enabling 3 instances of lighttpd using the “systemd” standard and it is very likely that it does not accept multiple instances in the same node. Having multiple instances on the same node would imply in having different
+configuration files and different .service unit files.
+	2. This is the reason that I’m not allowing the instances to run in all nodes: Using the right agent you can make the instances, and their virtual IP, to migrate among all nodes if one of them fails.
+	3. Instead of having 3 lighttpd instances here, you could have 1 lighttpd, 1 postfix and 1 mysql instance and all instances floating among all cluster nodes with no particular preference. All the 3 instances would be able to access the same clustered filesystem mounted at /clusterdata.
+rafaeldtinoco@clubionic01:~$ crm config show | cat -
+node 1: clubionic01
+node 2: clubionic02
+node 3: clubionic03
+primitive clubionic01_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic01_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic01_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic02_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic02_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic02_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic03_dlm ocf:pacemaker:controld \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive clubionic03_gfs2 Filesystem \
+        params device="/dev/clustervg/clustervol" directory="/clusterdata" \
+        fstype=gfs2 options=noatime \
+        op monitor interval=10s on-fail=fence interleave=true
+primitive clubionic03_lvm clvm \
+        op monitor interval=10s on-fail=fence interleave=true ordered=true
+primitive fence_clubionic stonith:fence_scsi \
+        params pcmk_host_list="clubionic01 clubionic02 clubionic03" plug="" \
+        devices="/dev/sda" \
+        meta provides=unfencing target-role=Started
+primitive instance01_ip IPaddr2 \
+        params ip=10.250.98.13 nic=eth3 \
+        op monitor interval=10s
+primitive instance01_web systemd:lighttpd \
+        op monitor interval=10 timeout=30
+primitive instance02_ip IPaddr2 \
+        params ip=10.250.98.14 nic=eth3 \
+        op monitor interval=10s
+primitive instance02_web systemd:lighttpd \
+        op monitor interval=10 timeout=30
+primitive instance03_ip IPaddr2 \
+        params ip=10.250.98.15 nic=eth3 \
+        op monitor interval=10s
+primitive instance03_web systemd:lighttpd \
+        op monitor interval=10 timeout=30
+group clubionic01_storage clubionic01_dlm clubionic01_lvm clubionic01_gfs2
+group clubionic02_storage clubionic02_dlm clubionic02_lvm clubionic02_gfs2
+group clubionic03_storage clubionic03_dlm clubionic03_lvm clubionic03_gfs2
+group instance01 instance01_web instance01_ip
+group instance02 instance02_web instance02_ip
+group instance03 instance03_web instance03_ip
+location l_clubionic01_storage clubionic01_storage \
+        rule -inf: #uname ne clubionic01
+location l_clubionic02_storage clubionic02_storage \
+        rule -inf: #uname ne clubionic02
+location l_clubionic03_storage clubionic03_storage \
+        rule -inf: #uname ne clubionic03
+location l_instance01 instance01 \
+        rule -inf: #uname ne clubionic01
+location l_instance02 instance02 \
+        rule -inf: #uname ne clubionic02
+location l_instance03 instance03 \
+        rule -inf: #uname ne clubionic03
+property cib-bootstrap-options: \
+        have-watchdog=false \
+        dc-version=1.1.18-2b07d5c5a9 \
+        cluster-infrastructure=corosync \
+        cluster-name=clubionic \
+        stonith-enabled=on \
+        stonith-action=off \
+        no-quorum-policy=stop \
+        last-lrm-refresh=1583708321
+rafaeldtinoco@clubionic01:~$ crm_mon -1
+Stack: corosync
+Current DC: clubionic02 (version 1.1.18-2b07d5c5a9) - partition with quorum
+Last updated: Mon Mar  9 03:42:11 2020
+Last change: Mon Mar  9 03:39:32 2020 by root via cibadmin on clubionic01
+ 
+3 nodes configured
+16 resources configured
+ 
+Online: [ clubionic01 clubionic02 clubionic03 ]
+ 
+Active resources:
+ 
+ fence_clubionic        (stonith:fence_scsi):   Started clubionic02
+ Resource Group: clubionic01_storage
+     clubionic01_dlm    (ocf::pacemaker:controld):      Started clubionic01
+     clubionic01_lvm    (ocf::heartbeat:clvm):  Started clubionic01
+     clubionic01_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic01
+ Resource Group: clubionic02_storage
+     clubionic02_dlm    (ocf::pacemaker:controld):      Started clubionic02
+     clubionic02_lvm    (ocf::heartbeat:clvm):  Started clubionic02
+     clubionic02_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic02
+ Resource Group: clubionic03_storage
+     clubionic03_dlm    (ocf::pacemaker:controld):      Started clubionic03
+     clubionic03_lvm    (ocf::heartbeat:clvm):  Started clubionic03
+     clubionic03_gfs2   (ocf::heartbeat:Filesystem):    Started clubionic03
+ Resource Group: instance01
+     instance01_web     (systemd:lighttpd):     Started clubionic01
+     instance01_ip      (ocf::heartbeat:IPaddr2):       Started clubionic01
+ Resource Group: instance02
+     instance02_web     (systemd:lighttpd):     Started clubionic02
+     instance02_ip      (ocf::heartbeat:IPaddr2):       Started clubionic02
+ Resource Group: instance03
+     instance03_web     (systemd:lighttpd):     Started clubionic03
+     instance03_ip      (ocf::heartbeat:IPaddr2):       Started clubionic03
+Like we did previously, let’s create a symbolic link of /clusterdata/www, of each node, into its correspondent /var/www directory.
+rafaeldtinoco@clubionic01:~$ sudo ln -s /clusterdata/www /var/www
+rafaeldtinoco@clubionic02:~$ sudo ln -s /clusterdata/www /var/www
+rafaeldtinoco@clubionic03:~$ sudo ln -s /clusterdata/www /var/www
+But now, as this is a clustered filesystem, we have to create the file just
+once =) and it will be serviced by all lighttpd instances, running in all 3
+nodes:
+rafaeldtinoco@clubionic01:~$ echo "all instances show the same thing" | \
+sudo tee /var/www/html/index.html
+all instances show the same thing
+Check it out:
+rafaeldtinoco@clubionic01:~$ curl http://instance01/
+all instances show the same thing
+rafaeldtinoco@clubionic01:~$ curl http://instance02/
+all instances show the same thing
+rafaeldtinoco@clubionic01:~$ curl http://instance03/
+all instances show the same thing
+Voilà =)
+You now have a pretty cool cluster to play with! Congrats!
+

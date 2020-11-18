@@ -67,11 +67,13 @@ struct tcpv4flow {
 struct udpv4flow {
 	struct ipv4base addrs;
 	struct portbase ports;
+	uint8_t reply;
 };
 
 struct icmpv4flow {
 	struct ipv4base addrs;
 	struct icmpbase base;
+	uint8_t reply;
 };
 
 /* IPv6 netfilter flows */
@@ -85,11 +87,13 @@ struct tcpv6flow {
 struct udpv6flow {
 	struct ipv6base addrs;
 	struct portbase ports;
+	uint8_t reply;
 };
 
 struct icmpv6flow {
 	struct ipv6base addrs;
 	struct icmpbase base;
+	uint8_t reply;
 };
 
 /* Sequences stored in memory */
@@ -229,6 +233,11 @@ int cmp_udpv4flow(struct udpv4flow *one, struct udpv4flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
+	if (one->reply < two->reply)
+		return LESS;
+	if (one->reply > two->reply)
+		return MORE;
+
 	return EQUAL;
 }
 
@@ -240,6 +249,11 @@ int cmp_icmpv4flow(struct icmpv4flow *one, struct icmpv4flow *two)
 		return res;
 	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
 		return res;
+
+	if (one->reply < two->reply)
+		return LESS;
+	if (one->reply > two->reply)
+		return MORE;
 
 	return EQUAL;
 }
@@ -272,6 +286,11 @@ int cmp_udpv6flow(struct udpv6flow *one, struct udpv6flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
+	if (one->reply < two->reply)
+		return LESS;
+	if (one->reply > two->reply)
+		return MORE;
+
 	return EQUAL;
 }
 
@@ -283,6 +302,11 @@ int cmp_icmpv6flow(struct icmpv6flow *one, struct icmpv6flow *two)
 		return res;
 	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
 		return res;
+
+	if (one->reply < two->reply)
+		return LESS;
+	if (one->reply > two->reply)
+		return MORE;
 
 	return EQUAL;
 }
@@ -459,22 +483,16 @@ static int event_cb(enum nf_conntrack_msg_type type,
 	struct in_addr ipv4_src_in, ipv4_dst_in;
 	struct in6_addr *ipv6_src, *ipv6_dst;
 	char ipv4_src_str[INET_ADDRSTRLEN], ipv4_dst_str[INET_ADDRSTRLEN];
-        char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
+	char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
 
-        char *ip_src_str_repl, *ip_dst_str_repl;
-        const uint8_t *itype_repl, *icode_repl;
-	const uint32_t *ipv4_src_repl, *ipv4_dst_repl;
-        struct in_addr ipv4_src_in_repl, ipv4_dst_in_repl;
-	char ipv4_src_str_repl[INET_ADDRSTRLEN], ipv4_dst_str_repl[INET_ADDRSTRLEN];
-
-	// keep only new conntracks when replies were seen
+	/* check if flow ever got a reply from the peer */
 
 	constatus = (uint32_t *) nfct_get_attr(ct, ATTR_STATUS);
 
 	if(*constatus & IPS_SEEN_REPLY)
 		reply = 1;
 
-	// skip address families other than IPv4 and IPv6
+	/* skip address families other than IPv4 and IPv6 */
 
 	family = (uint8_t *) nfct_get_attr(ct, ATTR_L3PROTO);
 
@@ -487,7 +505,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		return NFCT_CB_CONTINUE;
 	}
 
-	// skip IP protocols other than TCP / UDP / ICMP / ICMPv6
+	/* skip IP protocols other than TCP / UDP / ICMP / ICMPv6 */
 
 	proto = (uint8_t *) nfct_get_attr(ct, ATTR_L4PROTO);
 
@@ -503,22 +521,16 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		return NFCT_CB_CONTINUE;
 	}
 
-	// netfilter: address family attributes
+	/* netfilter: address family only attributes */
 
 	switch (*family) {
 	case AF_INET:
 		ipv4_src = (in_addr_t*) nfct_get_attr(ct, ATTR_IPV4_SRC);
 		ipv4_dst = (in_addr_t*) nfct_get_attr(ct, ATTR_IPV4_DST);
-		ipv4_src_repl = (in_addr_t*) nfct_get_attr(ct, ATTR_REPL_IPV4_SRC);
-		ipv4_dst_repl = (in_addr_t*) nfct_get_attr(ct, ATTR_REPL_IPV4_DST);
 		ipv4_src_in.s_addr = (in_addr_t) *ipv4_src;
 		ipv4_dst_in.s_addr = (in_addr_t) *ipv4_dst;
-		ipv4_src_in_repl.s_addr = (in_addr_t) *ipv4_src_repl;
-		ipv4_dst_in_repl.s_addr = (in_addr_t) *ipv4_dst_repl;
 		inet_ntop(AF_INET, ipv4_src, ipv4_src_str, INET_ADDRSTRLEN);
 		inet_ntop(AF_INET, ipv4_dst, ipv4_dst_str, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, ipv4_src_repl, ipv4_src_str_repl, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, ipv4_dst_repl, ipv4_dst_str_repl, INET_ADDRSTRLEN);
 		break;
 	case AF_INET6:
 		ipv6_src = (struct in6_addr*) nfct_get_attr(ct, ATTR_IPV6_SRC);
@@ -528,7 +540,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		break;
 	}
 
-	// netfilter: protocol attributes
+	/* netfilter: protocol only attributes */
 
 	switch (*proto) {
 	case IPPROTO_TCP:
@@ -537,15 +549,13 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		port_dst = (uint16_t*) nfct_get_attr(ct, ATTR_PORT_DST);
 		break;
 	case IPPROTO_ICMP:
-		itype_repl = (uint8_t*) nfct_get_attr(ct, ATTR_ICMP_TYPE);
-		icode_repl = (uint8_t*) nfct_get_attr(ct, ATTR_ICMP_CODE);
 	case IPPROTO_ICMPV6:
 		itype = (uint8_t*) nfct_get_attr(ct, ATTR_ICMP_TYPE);
 		icode = (uint8_t*) nfct_get_attr(ct, ATTR_ICMP_CODE);
 		break;
 	}
 
-	// store the flows
+	/* store the flows in memory for further processing */
 
 	switch (*family) {
 	case AF_INET:
@@ -570,6 +580,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			flow.addrs.dst = ipv4_dst_in;
 			flow.ports.src = *port_src;
 			flow.ports.dst = *port_dst;
+			flow.reply = reply;
 			add_udpv4flows(&flow);
 		}
 		break;
@@ -581,6 +592,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			flow.addrs.dst = ipv4_dst_in;
 			flow.base.type = *itype;
 			flow.base.code = *icode;
+			flow.reply = reply;
 			add_icmpv4flows(&flow);
 		}
 		break;
@@ -608,6 +620,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			flow.addrs.dst = *ipv6_dst;
 			flow.ports.src = *port_src;
 			flow.ports.dst = *port_dst;
+			flow.reply = reply;
 			add_udpv6flows(&flow);
 		}
 		break;
@@ -619,6 +632,7 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			flow.addrs.dst = *ipv6_dst;
 			flow.base.type = *itype;
 			flow.base.code = *icode;
+			flow.reply = reply;
 			add_icmpv6flows(&flow);
 		}
 		break;
@@ -626,8 +640,9 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		break;
 	}
 
-	// display
+	/* display (for debug purposes only) */
 
+	/*
 	switch (*family) {
 	case AF_INET:
 		ip_src_str = ipv4_src_str;
@@ -650,13 +665,14 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		break;
 	case IPPROTO_ICMP:
 		printf("ICMPv4 (%d) src = %s to ", type, ipv4_src_str);
-		printf("dst = %s - (type=%u | code=%u)\n", ipv4_dst_str, (int) *itype, (int) *icode);
+		printf("dst = %s - (type=%u | code=%u)%s\n", ipv4_dst_str, (int) *itype, (int) *icode, reply ? " (R)" : "");
 		break;
 	case IPPROTO_ICMPV6:
 		printf("ICMPv6 (%d) src = %s to ", type, ipv6_src_str);
-		printf("dst = %s - (type=%u | code=%u)\n", ipv6_dst_str, (int) *itype, (int) *icode);
+		printf("dst = %s - (type=%u | code=%u)%s\n", ipv6_dst_str, (int) *itype, (int) *icode, reply ? " (R)" : "");
 		break;
 	}
+	*/
 
 	return NFCT_CB_CONTINUE;
 }
@@ -705,7 +721,7 @@ void printa_icmpv4flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
 
 	printf("[%d] ICMPv4 src = %s to ", times++, ipv4_src_str);
-	printf("dst = %s - (type=%u | code=%u)\n", ipv4_dst_str, (int) flow->base.type, (int) flow->base.code);
+	printf("dst = %s - (type=%u | code=%u)%s\n", ipv4_dst_str, (int) flow->base.type, (int) flow->base.code, flow->reply ? " (R)" : "");
 }
 
 void printa_tcpv6flows(gpointer data, gpointer user_data)
@@ -756,7 +772,7 @@ void printa_icmpv6flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
 
 	printf("[%d] ICMPv6 src = %s to ", times++, ipv6_src_str);
-	printf("dst = %s - (type=%u | code=%u)\n", ipv6_dst_str, (int) flow->base.type, (int) flow->base.code);
+	printf("dst = %s - (type=%u | code=%u)%s\n", ipv6_dst_str, (int) flow->base.type, (int) flow->base.code, flow->reply ? " (R)" : "");
 }
 
 // cleanup
@@ -804,7 +820,7 @@ int main(void)
 	udpv6flows = g_sequence_new(NULL);
 	icmpv6flows = g_sequence_new(NULL);
 
-	h = nfct_open(CONNTRACK, NF_NETLINK_CONNTRACK_NEW);
+	h = nfct_open(CONNTRACK, NF_NETLINK_CONNTRACK_NEW | NF_NETLINK_CONNTRACK_UPDATE | NF_NETLINK_CONNTRACK_EXP_NEW | NF_NETLINK_CONNTRACK_EXP_UPDATE);
 	if (!h) {
 		perror("nfct_open");
 		ret = EXIT_FAILURE;

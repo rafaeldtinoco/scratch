@@ -17,84 +17,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <libnetfilter_conntrack/libnetfilter_conntrack.h>
-
-#include <gmodule.h>
-
-#define SUCCESS 0
-#define ERROR -1
-
-#define LESS -1
-#define EQUAL 0
-#define MORE 1
-
-struct ipv4base {
-	struct in_addr src;
-	struct in_addr dst;
-};
-
-struct ipv6base {
-	struct in6_addr src;
-	struct in6_addr dst;
-};
-
-struct portbase {
-	uint16_t src;
-	uint16_t dst;
-};
-
-struct icmpbase {
-	uint8_t type;
-	uint8_t code;
-};
-
-/* IPv4 netfilter flows */
-
-struct tcpv4flow {
-	struct ipv4base addrs;
-	struct portbase ports;
-	uint8_t reply;
-};
-
-struct udpv4flow {
-	struct ipv4base addrs;
-	struct portbase ports;
-	uint8_t reply;
-};
-
-struct icmpv4flow {
-	struct ipv4base addrs;
-	struct icmpbase base;
-	uint8_t reply;
-};
-
-/* IPv6 netfilter flows */
-
-struct tcpv6flow {
-	struct ipv6base addrs;
-	struct portbase ports;
-	uint8_t reply;
-};
-
-struct udpv6flow {
-	struct ipv6base addrs;
-	struct portbase ports;
-	uint8_t reply;
-};
-
-struct icmpv6flow {
-	struct ipv6base addrs;
-	struct icmpbase base;
-	uint8_t reply;
-};
+#include "conntracker.h"
 
 /* Sequences stored in memory */
 
@@ -106,30 +29,35 @@ GSequence *tcpv6flows;
 GSequence *udpv6flows;
 GSequence *icmpv6flows;
 
-/* Compare functions to keep binary trees balanced */
+/* compare bases */
 
-#define MORE_OR_LESS(one, two)			\
-{						\
-	if (one < two) { return LESS; }		\
-	if (one > two) { return MORE; }		\
+#define cmpbase(type, arg1, arg2)						\
+gint cmp_##type(struct type one, struct type two)				\
+{										\
+	if (one.arg1 < two.arg1)						\
+		return LESS;							\
+										\
+	if (one.arg1 > two.arg1)						\
+		return MORE;							\
+										\
+	if (one.arg1 == two.arg1)						\
+	{									\
+		if (one.arg2 < two.arg2)					\
+			return LESS;						\
+										\
+		if (one.arg2 > two.arg2)					\
+			return MORE;						\
+	}									\
+										\
+	return EQUAL;								\
 }
 
-int cmp_ipv4base(struct ipv4base one, struct ipv4base two)
-{
-	/* source address sort, then dest address sort */
-
-	MORE_OR_LESS(one.src.s_addr, two.src.s_addr);
-
-	if (one.src.s_addr == two.src.s_addr)
-		MORE_OR_LESS(one.dst.s_addr, two.dst.s_addr);
-
-	return EQUAL;
-}
+cmpbase(ipv4base, src.s_addr, dst.s_addr);
+cmpbase(portbase, dst, src);
+cmpbase(icmpbase, type, code);
 
 int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 {
-	/* IPv6 is 128-bit, sort it as strings, first source then dest */
-
 	int res = 0;
 	char one_src[INET6_ADDRSTRLEN], one_dst[INET6_ADDRSTRLEN];
 	char two_src[INET6_ADDRSTRLEN], two_dst[INET6_ADDRSTRLEN];
@@ -146,150 +74,71 @@ int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 
 	res = g_strcmp0(one_src, two_src);
 
-	MORE_OR_LESS(res, 0);
+	if (res < 0)
+		return LESS;
+	if (res > 0)
+		return MORE;
 
 	if (res == 0) {
 		res = g_strcmp0(one_dst, two_dst);
-		MORE_OR_LESS(one_dst, two_dst);
+
+		if (res < 0)
+			return LESS;
+		if (res > 0)
+			return MORE;
 	}
 
 	return EQUAL;
 }
 
-int cmp_portbase(struct portbase one, struct portbase two)
-{
-	/* dest port sort, then src port sort */
+/* compare flows */
 
-	MORE_OR_LESS(one.dst, two.dst);
-
-	if (one.dst == two.dst)
-		MORE_OR_LESS(one.src, two.src);
-
-	return EQUAL;
+#define cmpflow(type, arg1, arg2)						\
+int cmp_##type(struct type *one, struct type *two)				\
+{										\
+	int res;								\
+										\
+	if ((res = cmp_##arg1(one->addrs, two->addrs)) != EQUAL)		\
+		return res;							\
+	if ((res = cmp_##arg2(one->base, two->base)) != EQUAL)			\
+		return res;							\
+										\
+	if (one->reply < two->reply)						\
+		return LESS;							\
+	if (one->reply > two->reply)						\
+		return MORE;							\
+										\
+	return EQUAL;								\
 }
 
-int cmp_icmpbase(struct icmpbase one, struct icmpbase two)
-{
-	/* icmp type sort, then icmp code sort */
+cmpflow(tcpv4flow, ipv4base, portbase);
+cmpflow(udpv4flow, ipv4base, portbase);
+cmpflow(icmpv4flow, ipv4base, icmpbase);
+cmpflow(tcpv6flow, ipv6base, portbase);
+cmpflow(udpv6flow, ipv6base, portbase);
+cmpflow(icmpv6flow, ipv6base, icmpbase);
 
-	MORE_OR_LESS(one.type, two.type);
+/* compare types: tcpv4, udpv4, icmpv4, tcpv6, udpv6 or icmpv6 */
 
-	if (one.type == two.type)
-		MORE_OR_LESS(one.code, two.code);
-
-	return EQUAL;
-}
-
-/* Compare functions using the base structures comparison */
-
-	/* INET */
-
-int cmp_tcpv4flow(struct tcpv4flow *one, struct tcpv4flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv4base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-int cmp_udpv4flow(struct udpv4flow *one, struct udpv4flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv4base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-int cmp_icmpv4flow(struct icmpv4flow *one, struct icmpv4flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv4base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-int cmp_tcpv6flow(struct tcpv6flow *one, struct tcpv6flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv6base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-int cmp_udpv6flow(struct udpv6flow *one, struct udpv6flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv6base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-int cmp_icmpv6flow(struct icmpv6flow *one, struct icmpv6flow *two)
-{
-	int res;
-
-	if ((res = cmp_ipv6base(one->addrs, two->addrs)) != EQUAL)
-		return res;
-	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
-		return res;
-
-	MORE_OR_LESS(one->reply, two->reply);
-
-	return EQUAL;
-}
-
-/* Compare functions: types are tcpv4, udpv4, icmpv4, tcpv6, udpv6 or icmpv6 */
-
-#define cmpflows(type)					\
-gint cmp_##type##s(gconstpointer ptr_one,		\
-		   gconstpointer ptr_two,		\
-		   gpointer data)			\
-{							\
-	struct type *one = (struct type *) ptr_one;	\
-	struct type *two = (struct type *) ptr_two;	\
-							\
-	return cmp_##type(one, two);			\
+#define cmpflows(type)								\
+gint cmp_##type##s(gconstpointer ptr_one,					\
+		   gconstpointer ptr_two,					\
+		   gpointer data)						\
+{										\
+	struct type *one = (struct type *) ptr_one;				\
+	struct type *two = (struct type *) ptr_two;				\
+										\
+	return cmp_##type(one, two);						\
 }
 
 cmpflows(tcpv4flow);
 cmpflows(udpv4flow);
 cmpflows(icmpv4flow);
-
 cmpflows(tcpv6flow);
 cmpflows(udpv6flow);
 cmpflows(icmpv6flow);
 
-/* balanced binary trees keeping the flows in memory */
+/* add flows to in-memory binary-trees */
 
 #define addflows(type)								\
 gint add_##type##s(struct type *flow)						\
@@ -308,12 +157,11 @@ gint add_##type##s(struct type *flow)						\
 addflows(tcpv4flow);
 addflows(udpv4flow);
 addflows(icmpv4flow);
-
 addflows(tcpv6flow);
 addflows(udpv6flow);
 addflows(icmpv6flow);
 
-/* Default debug */
+/* debug */
 
 #define DEBUG
 
@@ -323,6 +171,8 @@ static void debug(char *string)
 	fprintf(stderr, "DEBUG: %s\n", string);
 #endif
 }
+
+/* conntracker event callback */
 
 static int event_cb(enum nf_conntrack_msg_type type,
 		    struct nf_conntrack *ct,
@@ -420,8 +270,8 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			memset(&flow, '0', sizeof(struct tcpv4flow));
 			flow.addrs.src = ipv4_src_in;
 			flow.addrs.dst = ipv4_dst_in;
-			flow.ports.src = *port_src;
-			flow.ports.dst = *port_dst;
+			flow.base.src = *port_src;
+			flow.base.dst = *port_dst;
 			flow.reply = reply;
 			add_tcpv4flows(&flow);
 		}
@@ -432,8 +282,8 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			memset(&flow, '0', sizeof(struct udpv4flow));
 			flow.addrs.src = ipv4_src_in;
 			flow.addrs.dst = ipv4_dst_in;
-			flow.ports.src = *port_src;
-			flow.ports.dst = *port_dst;
+			flow.base.src = *port_src;
+			flow.base.dst = *port_dst;
 			flow.reply = reply;
 			add_udpv4flows(&flow);
 		}
@@ -460,8 +310,8 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			memset(&flow, '0', sizeof(struct tcpv6flow));
 			flow.addrs.src = *ipv6_src;
 			flow.addrs.dst = *ipv6_dst;
-			flow.ports.src = *port_src;
-			flow.ports.dst = *port_dst;
+			flow.base.src = *port_src;
+			flow.base.dst = *port_dst;
 			flow.reply = reply;
 			add_tcpv6flows(&flow);
 		}
@@ -472,8 +322,8 @@ static int event_cb(enum nf_conntrack_msg_type type,
 			memset(&flow, '0', sizeof(struct udpv6flow));
 			flow.addrs.src = *ipv6_src;
 			flow.addrs.dst = *ipv6_dst;
-			flow.ports.src = *port_src;
-			flow.ports.dst = *port_dst;
+			flow.base.src = *port_src;
+			flow.base.dst = *port_dst;
 			flow.reply = reply;
 			add_udpv6flows(&flow);
 		}
@@ -510,8 +360,8 @@ void printa_tcpv4flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET, &(flow->addrs.src), ipv4_src_str, INET_ADDRSTRLEN);
 	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
 
-	printf("[%d] TCPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->ports.src));
-	printf("dst = %s (port=%u)%s\n", ipv4_dst_str, (int) ntohs(flow->ports.dst), flow->reply ? " (R)" : "");
+	printf("[%d] TCPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->base.src));
+	printf("dst = %s (port=%u)%s\n", ipv4_dst_str, (int) ntohs(flow->base.dst), flow->reply ? " (R)" : "");
 }
 
 void printa_udpv4flows(gpointer data, gpointer user_data)
@@ -525,8 +375,8 @@ void printa_udpv4flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET, &(flow->addrs.src), ipv4_src_str, INET_ADDRSTRLEN);
 	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
 
-	printf("[%d] UDPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->ports.src));
-	printf("dst = %s (port=%u)\n", ipv4_dst_str, (int) ntohs(flow->ports.dst));
+	printf("[%d] UDPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->base.src));
+	printf("dst = %s (port=%u)\n", ipv4_dst_str, (int) ntohs(flow->base.dst));
 }
 
 void printa_icmpv4flows(gpointer data, gpointer user_data)
@@ -557,8 +407,8 @@ void printa_tcpv6flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET6, &(flow->addrs.src), ipv6_src_str, INET6_ADDRSTRLEN);
 	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
 
-	printf("[%d] TCPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->ports.src));
-	printf("dst = %s (port=%u)%s\n", ipv6_dst_str, (int) ntohs(flow->ports.dst), flow->reply ? " (R)" : "");
+	printf("[%d] TCPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->base.src));
+	printf("dst = %s (port=%u)%s\n", ipv6_dst_str, (int) ntohs(flow->base.dst), flow->reply ? " (R)" : "");
 }
 
 void printa_udpv6flows(gpointer data, gpointer user_data)
@@ -574,8 +424,8 @@ void printa_udpv6flows(gpointer data, gpointer user_data)
 	inet_ntop(AF_INET6, &(flow->addrs.src), ipv6_src_str, INET6_ADDRSTRLEN);
 	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
 
-	printf("[%d] UDPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->ports.src));
-	printf("dst = %s (port=%u)\n", ipv6_dst_str, (int) ntohs(flow->ports.dst));
+	printf("[%d] UDPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->base.src));
+	printf("dst = %s (port=%u)\n", ipv6_dst_str, (int) ntohs(flow->base.dst));
 }
 
 void printa_icmpv6flows(gpointer data, gpointer user_data)

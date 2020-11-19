@@ -108,22 +108,20 @@ GSequence *icmpv6flows;
 
 /* Compare functions to keep binary trees balanced */
 
+#define MORE_OR_LESS(one, two)			\
+{						\
+	if (one < two) { return LESS; }		\
+	if (one > two) { return MORE; }		\
+}
+
 int cmp_ipv4base(struct ipv4base one, struct ipv4base two)
 {
 	/* source address sort, then dest address sort */
 
-	if (one.src.s_addr < two.src.s_addr)
-		return LESS;
-	if (one.src.s_addr > two.src.s_addr)
-		return MORE;
+	MORE_OR_LESS(one.src.s_addr, two.src.s_addr);
 
 	if (one.src.s_addr == two.src.s_addr)
-	{
-		if (one.dst.s_addr < two.dst.s_addr)
-			return LESS;
-		if (one.dst.s_addr > two.dst.s_addr)
-			return MORE;
-	}
+		MORE_OR_LESS(one.dst.s_addr, two.dst.s_addr);
 
 	return EQUAL;
 }
@@ -147,17 +145,12 @@ int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 	inet_ntop(AF_INET6, &two.dst, two_dst, INET6_ADDRSTRLEN);
 
 	res = g_strcmp0(one_src, two_src);
-	if (res < 0)
-		return LESS;
-	if (res > 0)
-		return MORE;
+
+	MORE_OR_LESS(res, 0);
 
 	if (res == 0) {
 		res = g_strcmp0(one_dst, two_dst);
-		if (res < 0)
-			return LESS;
-		if (res > 0)
-			return MORE;
+		MORE_OR_LESS(one_dst, two_dst);
 	}
 
 	return EQUAL;
@@ -167,18 +160,10 @@ int cmp_portbase(struct portbase one, struct portbase two)
 {
 	/* dest port sort, then src port sort */
 
-	if (one.dst < two.dst)
-		return LESS;
-	if (one.dst > two.dst)
-		return MORE;
+	MORE_OR_LESS(one.dst, two.dst);
 
 	if (one.dst == two.dst)
-	{
-		if (one.src < two.src)
-			return LESS;
-		if (one.src > two.src)
-			return MORE;
-	}
+		MORE_OR_LESS(one.src, two.src);
 
 	return EQUAL;
 }
@@ -187,18 +172,10 @@ int cmp_icmpbase(struct icmpbase one, struct icmpbase two)
 {
 	/* icmp type sort, then icmp code sort */
 
-	if (one.type < two.type)
-		return LESS;
-	if (one.type > two.type)
-		return MORE;
+	MORE_OR_LESS(one.type, two.type);
 
 	if (one.type == two.type)
-	{
-		if (one.code < two.code)
-			return LESS;
-		if (one.code > two.code)
-			return MORE;
-	}
+		MORE_OR_LESS(one.code, two.code);
 
 	return EQUAL;
 }
@@ -216,10 +193,7 @@ int cmp_tcpv4flow(struct tcpv4flow *one, struct tcpv4flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
@@ -233,10 +207,7 @@ int cmp_udpv4flow(struct udpv4flow *one, struct udpv4flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
@@ -250,15 +221,10 @@ int cmp_icmpv4flow(struct icmpv4flow *one, struct icmpv4flow *two)
 	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
-
-	/* INET6 */
 
 int cmp_tcpv6flow(struct tcpv6flow *one, struct tcpv6flow *two)
 {
@@ -269,10 +235,7 @@ int cmp_tcpv6flow(struct tcpv6flow *one, struct tcpv6flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
@@ -286,10 +249,7 @@ int cmp_udpv6flow(struct udpv6flow *one, struct udpv6flow *two)
 	if ((res = cmp_portbase(one->ports, two->ports)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
@@ -303,161 +263,55 @@ int cmp_icmpv6flow(struct icmpv6flow *one, struct icmpv6flow *two)
 	if ((res = cmp_icmpbase(one->base, two->base)) != EQUAL)
 		return res;
 
-	if (one->reply < two->reply)
-		return LESS;
-	if (one->reply > two->reply)
-		return MORE;
+	MORE_OR_LESS(one->reply, two->reply);
 
 	return EQUAL;
 }
 
-/* Compare functions */
+/* Compare functions: types are tcpv4, udpv4, icmpv4, tcpv6, udpv6 or icmpv6 */
 
-gint cmp_tcpv4flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct tcpv4flow *one = (struct tcpv4flow *) ptr_one;
-	struct tcpv4flow *two = (struct tcpv4flow *) ptr_two;
+#define cmpflows(type)					\
+gint cmp_##type##s(gconstpointer ptr_one,		\
+		   gconstpointer ptr_two,		\
+		   gpointer data)			\
+{							\
+	struct type *one = (struct type *) ptr_one;	\
+	struct type *two = (struct type *) ptr_two;	\
+							\
+	return cmp_##type(one, two);			\
+}
 
-	return cmp_tcpv4flow(one, two);
-};
+cmpflows(tcpv4flow);
+cmpflows(udpv4flow);
+cmpflows(icmpv4flow);
 
-gint cmp_udpv4flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct udpv4flow *one = (struct udpv4flow *) ptr_one;
-	struct udpv4flow *two = (struct udpv4flow *) ptr_two;
-
-	return cmp_udpv4flow(one, two);
-};
-
-gint cmp_icmpv4flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct icmpv4flow *one = (struct icmpv4flow *) ptr_one;
-	struct icmpv4flow *two = (struct icmpv4flow *) ptr_two;
-
-	return cmp_icmpv4flow(one, two);
-};
-
-gint cmp_tcpv6flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct tcpv6flow *one = (struct tcpv6flow *) ptr_one;
-	struct tcpv6flow *two = (struct tcpv6flow *) ptr_two;
-
-	return cmp_tcpv6flow(one, two);
-};
-
-gint cmp_udpv6flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct udpv6flow *one = (struct udpv6flow *) ptr_one;
-	struct udpv6flow *two = (struct udpv6flow *) ptr_two;
-
-	return cmp_udpv6flow(one, two);
-};
-
-gint cmp_icmpv6flows(gconstpointer ptr_one, gconstpointer ptr_two, gpointer data)
-{
-	struct icmpv6flow *one = (struct icmpv6flow *) ptr_one;
-	struct icmpv6flow *two = (struct icmpv6flow *) ptr_two;
-
-	return cmp_icmpv6flow(one, two);
-};
+cmpflows(tcpv6flow);
+cmpflows(udpv6flow);
+cmpflows(icmpv6flow);
 
 /* balanced binary trees keeping the flows in memory */
 
-int add_tcpv4flows(struct tcpv4flow *flow)
-{
-	gpointer gptr;
+#define addflows(type)								\
+gint add_##type##s(struct type *flow)						\
+{										\
+	gpointer gptr;								\
+										\
+	gptr = g_malloc0(sizeof(struct type));					\
+	memcpy(gptr, flow, sizeof(struct type));				\
+										\
+	if (g_sequence_lookup(type##s, gptr, cmp_##type##s, NULL) == NULL)	\
+		g_sequence_insert_sorted (type##s, gptr, cmp_##type##s, NULL);	\
+										\
+	return SUCCESS;								\
+}
 
-	if (tcpv4flows == NULL)
-		return ERROR;
+addflows(tcpv4flow);
+addflows(udpv4flow);
+addflows(icmpv4flow);
 
-	gptr = g_malloc0(sizeof(struct tcpv4flow));
-	memcpy(gptr, flow, sizeof(struct tcpv4flow));
-
-	if (g_sequence_lookup(tcpv4flows, gptr, cmp_tcpv4flows, NULL) == NULL)
-		g_sequence_insert_sorted (tcpv4flows, gptr, cmp_tcpv4flows, NULL);
-
-	return SUCCESS;
-};
-
-int add_udpv4flows(struct udpv4flow *flow)
-{
-	gpointer gptr;
-
-	if (udpv4flows == NULL)
-		return ERROR;
-
-	gptr = g_malloc0(sizeof(struct udpv4flow));
-	memcpy(gptr, flow, sizeof(struct udpv4flow));
-
-	if (g_sequence_lookup(udpv4flows, gptr, cmp_udpv4flows, NULL) == NULL)
-		g_sequence_insert_sorted (udpv4flows, gptr, cmp_udpv4flows, NULL);
-
-	return SUCCESS;
-};
-
-int add_icmpv4flows(struct icmpv4flow *flow)
-{
-	gpointer gptr;
-
-	if (icmpv4flows == NULL)
-		return ERROR;
-
-	gptr = g_malloc0(sizeof(struct icmpv4flow));
-	memcpy(gptr, flow, sizeof(struct icmpv4flow));
-
-	if (g_sequence_lookup(icmpv4flows, gptr, cmp_icmpv4flows, NULL) == NULL)
-		g_sequence_insert_sorted (icmpv4flows, gptr, cmp_icmpv4flows, NULL);
-
-	return SUCCESS;
-};
-
-int add_tcpv6flows(struct tcpv6flow *flow)
-{
-	gpointer gptr;
-
-	if (tcpv6flows == NULL)
-		return ERROR;
-
-	gptr = g_malloc0(sizeof(struct tcpv6flow));
-	memcpy(gptr, flow, sizeof(struct tcpv6flow));
-
-	if (g_sequence_lookup(tcpv6flows, gptr, cmp_tcpv6flows, NULL) == NULL)
-		g_sequence_insert_sorted (tcpv6flows, gptr, cmp_tcpv6flows, NULL);
-
-	return SUCCESS;
-};
-
-int add_udpv6flows(struct udpv6flow *flow)
-{
-	gpointer gptr;
-
-	if (udpv6flows == NULL)
-		return ERROR;
-
-	gptr = g_malloc0(sizeof(struct udpv6flow));
-	memcpy(gptr, flow, sizeof(struct udpv6flow));
-
-	if (g_sequence_lookup(udpv6flows, gptr, cmp_udpv6flows, NULL) == NULL)
-		g_sequence_insert_sorted (udpv6flows, gptr, cmp_udpv6flows, NULL);
-
-	return SUCCESS;
-};
-
-int add_icmpv6flows(struct icmpv6flow *flow)
-{
-	gpointer gptr;
-
-	if (icmpv6flows == NULL)
-		return ERROR;
-
-	gptr = g_malloc0(sizeof(struct icmpv6flow));
-	memcpy(gptr, flow, sizeof(struct icmpv6flow));
-
-	if (g_sequence_lookup(icmpv6flows, gptr, cmp_icmpv6flows, NULL) == NULL)
-		g_sequence_insert_sorted (icmpv6flows, gptr, cmp_icmpv6flows, NULL);
-
-	return SUCCESS;
-};
+addflows(tcpv6flow);
+addflows(udpv6flow);
+addflows(icmpv6flow);
 
 /* Default debug */
 
@@ -640,40 +494,6 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		break;
 	}
 
-	/* display (for debug purposes only) */
-
-	/*
-	switch (*family) {
-	case AF_INET:
-		ip_src_str = ipv4_src_str;
-		ip_dst_str = ipv4_dst_str;
-		break;
-	case AF_INET6:
-		ip_src_str = ipv6_src_str;
-		ip_dst_str = ipv6_dst_str;
-		break;
-	}
-
-	switch (*proto) {
-	case IPPROTO_TCP:
-		printf("TCP    (%d) src = %s (port=%u) to ", type, ip_src_str, ntohs(*port_src));
-		printf("dst = %s (port=%u)%s\n", ip_dst_str, (int) ntohs(*port_dst), reply ? " (R)" : "");
-		break;
-	case IPPROTO_UDP:
-		printf("UDP    (%d) src = %s (port=%u) to ", type, ip_src_str, ntohs(*port_src));
-		printf("dst = %s (port=%u)%s\n", ip_dst_str, (int) ntohs(*port_dst), reply ? " (R)" : "");
-		break;
-	case IPPROTO_ICMP:
-		printf("ICMPv4 (%d) src = %s to ", type, ipv4_src_str);
-		printf("dst = %s - (type=%u | code=%u)%s\n", ipv4_dst_str, (int) *itype, (int) *icode, reply ? " (R)" : "");
-		break;
-	case IPPROTO_ICMPV6:
-		printf("ICMPv6 (%d) src = %s to ", type, ipv6_src_str);
-		printf("dst = %s - (type=%u | code=%u)%s\n", ipv6_dst_str, (int) *itype, (int) *icode, reply ? " (R)" : "");
-		break;
-	}
-	*/
-
 	return NFCT_CB_CONTINUE;
 }
 
@@ -820,7 +640,7 @@ int main(void)
 	udpv6flows = g_sequence_new(NULL);
 	icmpv6flows = g_sequence_new(NULL);
 
-	h = nfct_open(CONNTRACK, NF_NETLINK_CONNTRACK_NEW | NF_NETLINK_CONNTRACK_UPDATE | NF_NETLINK_CONNTRACK_EXP_NEW | NF_NETLINK_CONNTRACK_EXP_UPDATE);
+	h = nfct_open(CONNTRACK, NF_NETLINK_CONNTRACK_NEW | NF_NETLINK_CONNTRACK_UPDATE);
 	if (!h) {
 		perror("nfct_open");
 		ret = EXIT_FAILURE;

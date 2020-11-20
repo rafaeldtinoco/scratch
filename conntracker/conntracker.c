@@ -19,7 +19,29 @@
 
 #include "conntracker.h"
 
-/* Sequences stored in memory */
+/* helper functions */
+
+gchar *ipv4_str(struct in_addr *addr)
+{
+	gchar temp[INET_ADDRSTRLEN];
+
+	memset(temp, 0, INET_ADDRSTRLEN);
+	inet_ntop(AF_INET, addr, temp, INET_ADDRSTRLEN);
+
+	return g_strdup(temp);
+}
+
+gchar *ipv6_str(struct in6_addr *addr)
+{
+	gchar temp[INET6_ADDRSTRLEN];
+
+	memset(temp, 0, INET6_ADDRSTRLEN);
+	inet_ntop(AF_INET6, addr, temp, INET6_ADDRSTRLEN);
+
+	return g_strdup(temp);
+}
+
+/* seqs stored in memory */
 
 GSequence *tcpv4flows;
 GSequence *udpv4flows;
@@ -29,7 +51,7 @@ GSequence *tcpv6flows;
 GSequence *udpv6flows;
 GSequence *icmpv6flows;
 
-/* compare bases */
+/* functions used to sort existing sequences based on its elements */
 
 #define cmpbase(type, arg1, arg2)						\
 gint cmp_##type(struct type one, struct type two)				\
@@ -56,23 +78,21 @@ cmpbase(ipv4base, src.s_addr, dst.s_addr);
 cmpbase(portbase, dst, src);
 cmpbase(icmpbase, type, code);
 
+
 int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 {
+	/* ipv6 sorting done through its string as its easier */
+
 	int res = 0;
-	char one_src[INET6_ADDRSTRLEN], one_dst[INET6_ADDRSTRLEN];
-	char two_src[INET6_ADDRSTRLEN], two_dst[INET6_ADDRSTRLEN];
+	gchar *str1, *str2;
 
-	memset(&one_src, 0, INET6_ADDRSTRLEN);
-	memset(&one_dst, 0, INET6_ADDRSTRLEN);
-	memset(&two_src, 0, INET6_ADDRSTRLEN);
-	memset(&two_dst, 0, INET6_ADDRSTRLEN);
+	str1 = ipv6_str(&one.src);
+	str2 = ipv6_str(&two.src);
 
-	inet_ntop(AF_INET6, &one.src, one_src, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &two.src, two_src, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &one.dst, one_dst, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &two.dst, two_dst, INET6_ADDRSTRLEN);
+	res = g_strcmp0(str1, str2);
 
-	res = g_strcmp0(one_src, two_src);
+	g_free(str1);
+	g_free(str2);
 
 	if (res < 0)
 		return LESS;
@@ -80,7 +100,14 @@ int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 		return MORE;
 
 	if (res == 0) {
-		res = g_strcmp0(one_dst, two_dst);
+
+		str1 = ipv6_str(&one.dst);
+		str2 = ipv6_str(&two.dst);
+
+		res = g_strcmp0(str1, str2);
+
+		g_free(str1);
+		g_free(str2);
 
 		if (res < 0)
 			return LESS;
@@ -91,7 +118,7 @@ int cmp_ipv6base(struct ipv6base one, struct ipv6base two)
 	return EQUAL;
 }
 
-/* compare flows */
+/* call proper comparison/sorting functions based on given type */
 
 #define cmpflow(type, arg1, arg2)						\
 int cmp_##type(struct type *one, struct type *two)				\
@@ -118,7 +145,7 @@ cmpflow(tcpv6flow, ipv6base, portbase);
 cmpflow(udpv6flow, ipv6base, portbase);
 cmpflow(icmpv6flow, ipv6base, icmpbase);
 
-/* compare types: tcpv4, udpv4, icmpv4, tcpv6, udpv6 or icmpv6 */
+/* compare two given flows (tcpv4, udpv4, icmpv4, tcpv6, udpv6 or icmpv6) */
 
 #define cmpflows(type)								\
 gint cmp_##type##s(gconstpointer ptr_one,					\
@@ -138,7 +165,7 @@ cmpflows(tcpv6flow);
 cmpflows(udpv6flow);
 cmpflows(icmpv6flow);
 
-/* add flows to in-memory binary-trees */
+/* add flows based on given type */
 
 #define addflows(type)								\
 gint add_##type##s(struct type *flow)						\
@@ -161,6 +188,161 @@ addflows(tcpv6flow);
 addflows(udpv6flow);
 addflows(icmpv6flow);
 
+/* temporary */
+
+#define addflow(arg1, arg2, arg3, arg4)						\
+gint add##arg1(struct arg2 s, struct arg2 d,					\
+		uint16_t ps, uint16_t pd, uint8_t r)				\
+{										\
+	struct arg1 flow;							\
+	memset(&flow, '0', sizeof(struct arg1));				\
+										\
+	flow.addrs.src = s;							\
+	flow.addrs.dst = d;							\
+	flow.base.arg3 = ps;							\
+	flow.base.arg4 = pd;							\
+	flow.reply = r;								\
+										\
+	add_##arg1##s(&flow);							\
+										\
+	return SUCCESS;								\
+}
+
+addflow(tcpv4flow, in_addr, src, dst);
+addflow(udpv4flow, in_addr, src, dst);
+addflow(icmpv4flow, in_addr, type, code);
+addflow(tcpv6flow, in6_addr, src, dst);
+addflow(udpv6flow, in6_addr, src, dst);
+addflow(icmpv6flow, in6_addr, type, code);
+
+/* display the flows */
+
+void printa_tcpv4flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv4src, *ipv4dst;
+	struct tcpv4flow *flow = data;
+
+	ipv4src = ipv4_str(&flow->addrs.src);
+	ipv4dst = ipv4_str(&flow->addrs.dst);
+
+	printf("[%d] TCPv4  src = %s (port=%u) to dst = %s (port=%u)%s\n",
+			times++,
+			ipv4src,
+			ntohs(flow->base.src),
+			ipv4dst,
+			(int) ntohs(flow->base.dst),
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv4src);
+	g_free(ipv4dst);
+}
+
+void printa_udpv4flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv4src, *ipv4dst;
+	struct udpv4flow *flow = data;
+
+	ipv4src = ipv4_str(&flow->addrs.src);
+	ipv4dst = ipv4_str(&flow->addrs.dst);
+
+	printf("[%d] UDPv4  src = %s (port=%u) to dst = %s (port=%u)%s\n",
+			times++,
+			ipv4src,
+			ntohs(flow->base.src),
+			ipv4dst,
+			(int) ntohs(flow->base.dst),
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv4src);
+	g_free(ipv4dst);
+}
+
+void printa_icmpv4flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv4src, *ipv4dst;
+	struct icmpv4flow *flow = data;
+
+	ipv4src = ipv4_str(&flow->addrs.src);
+	ipv4dst = ipv4_str(&flow->addrs.dst);
+
+	printf("[%d] ICMPv4 src = %s to dst = %s (type=%u | code=%u)%s\n",
+			times++,
+			ipv4src,
+			ipv4dst,
+			(int) flow->base.type,
+			(int) flow->base.code,
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv4src);
+	g_free(ipv4dst);
+}
+
+void printa_tcpv6flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv6src, *ipv6dst;
+	struct tcpv6flow *flow = data;
+
+	ipv6src = ipv6_str(&flow->addrs.src);
+	ipv6dst = ipv6_str(&flow->addrs.dst);
+
+	printf("[%d] TCPv6  src = %s (port=%u) to dst = %s (port=%u)%s\n",
+			times++,
+			ipv6src,
+			ntohs(flow->base.src),
+			ipv6dst,
+			(int) ntohs(flow->base.dst),
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv6src);
+	g_free(ipv6dst);
+}
+
+void printa_udpv6flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv6src, *ipv6dst;
+	struct udpv6flow *flow = data;
+
+	ipv6src = ipv6_str(&flow->addrs.src);
+	ipv6dst = ipv6_str(&flow->addrs.dst);
+
+	printf("[%d] UDPv6  src = %s (port=%u) to dst = %s (port=%u)%s\n",
+			times++,
+			ipv6src,
+			ntohs(flow->base.src),
+			ipv6dst,
+			(int) ntohs(flow->base.dst),
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv6src);
+	g_free(ipv6dst);
+}
+
+void printa_icmpv6flows(gpointer data, gpointer user_data)
+{
+	static int times = 0;
+	gchar *ipv6src, *ipv6dst;
+	struct icmpv6flow *flow = data;
+
+	ipv6src = ipv6_str(&flow->addrs.src);
+	ipv6dst = ipv6_str(&flow->addrs.dst);
+
+	printf("[%d] ICMPv6 src = %s to dst = %s (type=%u | code=%u)%s\n",
+			times++,
+			ipv6src,
+			ipv6dst,
+			(int) flow->base.type,
+			(int) flow->base.code,
+			flow->reply ? " (R)" : "");
+
+	g_free(ipv6src);
+	g_free(ipv6dst);
+}
+
 /* debug */
 
 #define DEBUG
@@ -179,15 +361,12 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		    void *data)
 {
 	short reply = 0;
-	char *ip_src_str, *ip_dst_str;
 	const uint8_t *family, *proto;
 	const uint8_t *itype, *icode;
 	const uint16_t *port_src, *port_dst;
 	const uint32_t *constatus, *ipv4_src, *ipv4_dst;
 	struct in_addr ipv4_src_in, ipv4_dst_in;
-	struct in6_addr *ipv6_src, *ipv6_dst;
-	char ipv4_src_str[INET_ADDRSTRLEN], ipv4_dst_str[INET_ADDRSTRLEN];
-	char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
+	struct in6_addr *ipv6_src_in, *ipv6_dst_in;
 
 	/* check if flow ever got a reply from the peer */
 
@@ -233,14 +412,10 @@ static int event_cb(enum nf_conntrack_msg_type type,
 		ipv4_dst = (in_addr_t*) nfct_get_attr(ct, ATTR_IPV4_DST);
 		ipv4_src_in.s_addr = (in_addr_t) *ipv4_src;
 		ipv4_dst_in.s_addr = (in_addr_t) *ipv4_dst;
-		inet_ntop(AF_INET, ipv4_src, ipv4_src_str, INET_ADDRSTRLEN);
-		inet_ntop(AF_INET, ipv4_dst, ipv4_dst_str, INET_ADDRSTRLEN);
 		break;
 	case AF_INET6:
-		ipv6_src = (struct in6_addr*) nfct_get_attr(ct, ATTR_IPV6_SRC);
-		ipv6_dst = (struct in6_addr*) nfct_get_attr(ct, ATTR_IPV6_DST);
-		inet_ntop(AF_INET6, ipv6_src, ipv6_src_str, INET6_ADDRSTRLEN);
-		inet_ntop(AF_INET6, ipv6_dst, ipv6_dst_str, INET6_ADDRSTRLEN);
+		ipv6_src_in = (struct in6_addr*) nfct_get_attr(ct, ATTR_IPV6_SRC);
+		ipv6_dst_in = (struct in6_addr*) nfct_get_attr(ct, ATTR_IPV6_DST);
 		break;
 	}
 
@@ -265,75 +440,30 @@ static int event_cb(enum nf_conntrack_msg_type type,
 	case AF_INET:
 		switch (*proto) {
 		case IPPROTO_TCP:
-		{
-			struct tcpv4flow flow;
-			memset(&flow, '0', sizeof(struct tcpv4flow));
-			flow.addrs.src = ipv4_src_in;
-			flow.addrs.dst = ipv4_dst_in;
-			flow.base.src = *port_src;
-			flow.base.dst = *port_dst;
-			flow.reply = reply;
-			add_tcpv4flows(&flow);
-		}
-		break;
+			addtcpv4flow(ipv4_src_in, ipv4_dst_in, *port_src, *port_dst, reply);
+			break;
 		case IPPROTO_UDP:
-		{
-			struct udpv4flow flow;
-			memset(&flow, '0', sizeof(struct udpv4flow));
-			flow.addrs.src = ipv4_src_in;
-			flow.addrs.dst = ipv4_dst_in;
-			flow.base.src = *port_src;
-			flow.base.dst = *port_dst;
-			flow.reply = reply;
-			add_udpv4flows(&flow);
-		}
-		break;
+			addudpv4flow(ipv4_src_in, ipv4_dst_in, *port_src, *port_dst, reply);
+			break;
 		case IPPROTO_ICMP:
-		{
-			struct icmpv4flow flow;
-			memset(&flow, '0', sizeof(struct icmpv4flow));
-			flow.addrs.src = ipv4_src_in;
-			flow.addrs.dst = ipv4_dst_in;
-			flow.base.type = *itype;
-			flow.base.code = *icode;
-			flow.reply = reply;
-			add_icmpv4flows(&flow);
-		}
-		break;
+			addicmpv4flow(ipv4_src_in, ipv4_dst_in, *itype, *icode, reply);
+			break;
 		}
 		break;
 	case AF_INET6:
 		switch (*proto) {
 		case IPPROTO_TCP:
-		{
-			struct tcpv6flow flow;
-			memset(&flow, '0', sizeof(struct tcpv6flow));
-			flow.addrs.src = *ipv6_src;
-			flow.addrs.dst = *ipv6_dst;
-			flow.base.src = *port_src;
-			flow.base.dst = *port_dst;
-			flow.reply = reply;
-			add_tcpv6flows(&flow);
-		}
-		break;
+			addtcpv6flow(*ipv6_src_in, *ipv6_dst_in, *port_src, *port_dst, reply);
+			break;
 		case IPPROTO_UDP:
-		{
-			struct udpv6flow flow;
-			memset(&flow, '0', sizeof(struct udpv6flow));
-			flow.addrs.src = *ipv6_src;
-			flow.addrs.dst = *ipv6_dst;
-			flow.base.src = *port_src;
-			flow.base.dst = *port_dst;
-			flow.reply = reply;
-			add_udpv6flows(&flow);
-		}
-		break;
+			addudpv6flow(*ipv6_src_in, *ipv6_dst_in, *port_src, *port_dst, reply);
+			break;
 		case IPPROTO_ICMPV6:
 		{
 			struct icmpv6flow flow;
 			memset(&flow, '0', sizeof(struct icmpv6flow));
-			flow.addrs.src = *ipv6_src;
-			flow.addrs.dst = *ipv6_dst;
+			flow.addrs.src = *ipv6_src_in;
+			flow.addrs.dst = *ipv6_dst_in;
 			flow.base.type = *itype;
 			flow.base.code = *icode;
 			flow.reply = reply;
@@ -347,103 +477,6 @@ static int event_cb(enum nf_conntrack_msg_type type,
 	return NFCT_CB_CONTINUE;
 }
 
-// display (temporary)
-
-void printa_tcpv4flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct tcpv4flow *flow = data;
-
-	const uint32_t *ipv4_src, *ipv4_dst;
-	char ipv4_src_str[INET_ADDRSTRLEN], ipv4_dst_str[INET_ADDRSTRLEN];
-
-	inet_ntop(AF_INET, &(flow->addrs.src), ipv4_src_str, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
-
-	printf("[%d] TCPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->base.src));
-	printf("dst = %s (port=%u)%s\n", ipv4_dst_str, (int) ntohs(flow->base.dst), flow->reply ? " (R)" : "");
-}
-
-void printa_udpv4flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct udpv4flow *flow = data;
-
-	const uint32_t *ipv4_src, *ipv4_dst;
-	char ipv4_src_str[INET_ADDRSTRLEN], ipv4_dst_str[INET_ADDRSTRLEN];
-
-	inet_ntop(AF_INET, &(flow->addrs.src), ipv4_src_str, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
-
-	printf("[%d] UDPv4  src = %s (port=%u) to ", times++, ipv4_src_str, ntohs(flow->base.src));
-	printf("dst = %s (port=%u)\n", ipv4_dst_str, (int) ntohs(flow->base.dst));
-}
-
-void printa_icmpv4flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct icmpv4flow *flow = data;
-
-	const uint32_t *ipv4_src, *ipv4_dst;
-	char ipv4_src_str[INET_ADDRSTRLEN], ipv4_dst_str[INET_ADDRSTRLEN];
-
-	inet_ntop(AF_INET, &(flow->addrs.src), ipv4_src_str, INET_ADDRSTRLEN);
-	inet_ntop(AF_INET, &(flow->addrs.dst), ipv4_dst_str, INET_ADDRSTRLEN);
-
-	printf("[%d] ICMPv4 src = %s to ", times++, ipv4_src_str);
-	printf("dst = %s - (type=%u | code=%u)%s\n", ipv4_dst_str, (int) flow->base.type, (int) flow->base.code, flow->reply ? " (R)" : "");
-}
-
-void printa_tcpv6flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct tcpv6flow *flow = data;
-
-	char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
-
-	memset(&ipv6_src_str, 0, INET6_ADDRSTRLEN);
-	memset(&ipv6_dst_str, 0, INET6_ADDRSTRLEN);
-
-	inet_ntop(AF_INET6, &(flow->addrs.src), ipv6_src_str, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
-
-	printf("[%d] TCPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->base.src));
-	printf("dst = %s (port=%u)%s\n", ipv6_dst_str, (int) ntohs(flow->base.dst), flow->reply ? " (R)" : "");
-}
-
-void printa_udpv6flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct udpv6flow *flow = data;
-
-	char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
-
-	memset(&ipv6_src_str, 0, INET6_ADDRSTRLEN);
-	memset(&ipv6_dst_str, 0, INET6_ADDRSTRLEN);
-
-	inet_ntop(AF_INET6, &(flow->addrs.src), ipv6_src_str, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
-
-	printf("[%d] UDPv6  src = %s (port=%u) to ", times++, ipv6_src_str, ntohs(flow->base.src));
-	printf("dst = %s (port=%u)\n", ipv6_dst_str, (int) ntohs(flow->base.dst));
-}
-
-void printa_icmpv6flows(gpointer data, gpointer user_data)
-{
-	static int times = 0;
-	struct icmpv6flow *flow = data;
-
-	char ipv6_src_str[INET6_ADDRSTRLEN], ipv6_dst_str[INET6_ADDRSTRLEN];
-
-	memset(&ipv6_src_str, 0, INET6_ADDRSTRLEN);
-	memset(&ipv6_dst_str, 0, INET6_ADDRSTRLEN);
-
-	inet_ntop(AF_INET6, &(flow->addrs.src), ipv6_src_str, INET6_ADDRSTRLEN);
-	inet_ntop(AF_INET6, &(flow->addrs.dst), ipv6_dst_str, INET6_ADDRSTRLEN);
-
-	printf("[%d] ICMPv6 src = %s to ", times++, ipv6_src_str);
-	printf("dst = %s - (type=%u | code=%u)%s\n", ipv6_dst_str, (int) flow->base.type, (int) flow->base.code, flow->reply ? " (R)" : "");
-}
 
 // cleanup
 
@@ -485,7 +518,6 @@ int main(void)
 	tcpv4flows = g_sequence_new(NULL); // TODO: create a destroy function to free items
 	udpv4flows = g_sequence_new(NULL);
 	icmpv4flows = g_sequence_new(NULL);
-
 	tcpv6flows = g_sequence_new(NULL);
 	udpv6flows = g_sequence_new(NULL);
 	icmpv6flows = g_sequence_new(NULL);

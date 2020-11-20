@@ -20,7 +20,7 @@ GLIB_LIBS += `pkg-config --libs glib-2.0`
 CONNTRACK_LIBS += `pkg-config --libs libnetfilter_conntrack`
 
 all:
-	gcc -I. $(GLIB_INCLUDES) -g -o conntracker conntracker.c $(GLIB_LIBS) $(CONNTRACK_LIBS)
+	gcc -I. $(GLIB_INCLUDES) -O2 -g -ggdb -o conntracker conntracker.c $(GLIB_LIBS) $(CONNTRACK_LIBS)
 
 clean:
 	rm -f conntracker

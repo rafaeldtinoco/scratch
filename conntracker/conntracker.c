@@ -290,8 +290,6 @@ printa(icmpv6flow, ipv6, "ICMPv6 [%12d] src = %s to dst = %s (type=%u | code=%u)
 
 /* debug */
 
-#define DEBUG
-
 static void debug(char *string)
 {
 #ifdef DEBUG
@@ -420,8 +418,6 @@ static int event_cb(enum nf_conntrack_msg_type type,
 	return NFCT_CB_CONTINUE;
 }
 
-// cleanup
-
 void cleanup(void)
 {
 	g_sequence_foreach(tcpv4flows, printa_tcpv4flows, NULL);
@@ -444,8 +440,6 @@ void handler(int what)
 	cleanup();
 	exit(SUCCESS);
 }
-
-// main
 
 int main(void)
 {
@@ -479,4 +473,3 @@ endclean:
 	cleanup();
 	exit(ret);
 }
-

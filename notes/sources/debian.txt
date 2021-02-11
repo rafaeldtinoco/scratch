@@ -1,4 +1,0 @@
-deb http://deb.debian.org/debian/ sid main non-free contrib
-deb-src http://deb.debian.org/debian/ sid main non-free contrib
-deb http://debug.mirrors.debian.org/debian-debug/ sid-debug main
-

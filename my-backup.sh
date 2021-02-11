@@ -1,7 +1,11 @@
 #!/bin/bash
 
-TODAY=$(date +%d-%m-%Y)
+TODAY=$(date +%Y-%m-%d)
 BACKUPDIR="/superbig/backup"
+
+compl=""
+
+[[ $(($(date +%d)%10)) -ne 0 ]] && compl="--exclude=var/lib/libvirt/images/*"
 
 sudo mkdir -p ${BACKUPDIR}/${HOSTNAME}
 
@@ -16,8 +20,8 @@ sudo rsync -azb \
     --exclude=mnt/* \
     --exclude=media/* \
     --exclude=snap/* \
-    --exclude=var/lib/libvirt/images/* \
     --exclude=home/rafaeldtinoco/snap/* \
+    $compl \
     ${BACKUPDIR}/${HOSTNAME}/latest
 
 ret=$?
